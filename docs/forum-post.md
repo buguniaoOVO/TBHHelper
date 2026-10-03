@@ -4,9 +4,9 @@
 
 **GitHub：** https://github.com/buguniaoOVO/TBHHelper
 
-**下载页：** https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.45
+**下载页：** https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.46
 
-当前助手版本 **1.3.45**，游戏插件 **1.3.43**，署名 **by Awan**。
+当前助手版本 **1.3.46**，游戏插件 **1.3.43**，署名 **by Awan**。
 
 ![运行概览](images/01-overview.png)
 

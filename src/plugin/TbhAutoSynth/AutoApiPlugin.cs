@@ -16,6 +16,7 @@ public class AutoApiPlugin : BasePlugin
 	public override void Load()
 	{
 		Logger = ((BasePlugin)this).Log;
+		ConsoleWindowHider.Hide();
 		try
 		{
 			_harmony = new Harmony("com.pres.tbh.runtime-monitor");

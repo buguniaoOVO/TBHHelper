@@ -7,7 +7,7 @@
 
 TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自动合成、瘟疫之地与腐蚀设置，以及带道具图片和市场参考价的仓库页面。
 
-**[下载 v1.3.45](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.45)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.46](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.46)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![运行概览](docs/images/01-overview.png)
 
@@ -70,7 +70,7 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 环境：Windows 10/11 64 位、Steam 版 TaskBarHero。下载包自带 Java 17 运行库，不需要另外安装。
 
-1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.45) 下载 Windows x64 ZIP，完整解压。
+1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.46) 下载 Windows x64 ZIP，完整解压。
 2. 双击文件夹里的 `TBH助手.exe` 直接打开助手。
 3. 先退出游戏，在“设置/setting”页点“一键部署”。助手会定位游戏目录，写入后台环境与插件，被覆盖的文件先备份。
 4. 从 Steam 启动游戏，等待助手显示“游戏已连接”。

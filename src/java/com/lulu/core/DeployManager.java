@@ -57,6 +57,8 @@ public final class DeployManager {
             Path game = Paths.get(gamePath).toRealPath();
             copyEnvironment(source.toPath(), game);
             Path plugin = copyPlugin(game);
+            boolean hidConsole = BepInExConfig.disableConsole(game);
+            System.out.println(">>> [环境部署] 已关闭 BepInEx 控制台窗口: " + hidConsole);
             System.out.println("✅ [环境部署] 运行环境与插件已就绪: " + plugin);
             JOptionPane.showMessageDialog(null,
                     "后台环境与插件部署完成。\n\n请启动游戏，等助手显示“游戏已连接”后再开启自动任务。",

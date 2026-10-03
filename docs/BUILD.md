@@ -5,16 +5,16 @@
 从 Releases 解压公开包，使用其中的 JAR 作为依赖基线：
 
 ```powershell
-./build.ps1 -BaseApp 'C:/TBHHelper/TBH-Helper-v1.3.45.jar' -JavaPath 'C:/TBHHelper/runtime/bin/java.exe'
+./build.ps1 -BaseApp 'C:/TBHHelper/TBH-Helper-v1.3.46.jar' -JavaPath 'C:/TBHHelper/runtime/bin/java.exe'
 ```
 
 Python 不在 PATH 时，添加 `-PythonPath`。编译插件：
 
 ```powershell
-./build.ps1 -BaseApp 'C:/TBHHelper/TBH-Helper-v1.3.45.jar' -JavaPath 'C:/TBHHelper/runtime/bin/java.exe' -IncludePlugin -GameDir 'C:/Games/TaskbarHero'
+./build.ps1 -BaseApp 'C:/TBHHelper/TBH-Helper-v1.3.46.jar' -JavaPath 'C:/TBHHelper/runtime/bin/java.exe' -IncludePlugin -GameDir 'C:/Games/TaskbarHero'
 ```
 
-产物：`dist/TBH-Helper-v1.3.45.jar`、`build/native/TBH助手.exe` 和插件项目的 Release 目录。发布包把启动器放在根目录、内置运行库放在 `runtime`，打包脚本见仓库说明。
+产物：`dist/TBH-Helper-v1.3.46.jar`、`build/native/TBH助手.exe` 和插件项目的 Release 目录。发布包把启动器放在根目录、内置运行库放在 `runtime`，打包脚本见仓库说明。
 
 Java 构建使用 ECJ 编译维护模块，并将资源和编译类替换进基线 JAR。游戏 DLL 从安装目录引用，构建脚本不复制游戏文件到仓库。
 

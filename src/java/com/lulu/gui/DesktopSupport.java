@@ -5,9 +5,8 @@ import com.sun.jna.WString;
 import com.sun.jna.win32.StdCallLibrary;
 import java.awt.BorderLayout;
 import java.awt.Dimension;
+import java.awt.Font;
 import java.awt.Image;
-import java.awt.MenuItem;
-import java.awt.PopupMenu;
 import java.awt.SystemTray;
 import java.awt.TrayIcon;
 import java.awt.event.WindowAdapter;
@@ -22,8 +21,10 @@ import javax.swing.BorderFactory;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 
 public final class DesktopSupport {
@@ -32,6 +33,7 @@ public final class DesktopSupport {
     private final Runnable exit;
     private final List<Image> icons;
     private TrayIcon trayIcon;
+    private JPopupMenu trayMenu;
     private boolean closeDialogOpen;
 
     public interface TaskbarShell extends StdCallLibrary {
@@ -163,23 +165,17 @@ public final class DesktopSupport {
                         break;
                     }
                 }
-                PopupMenu menu = new PopupMenu();
-                MenuItem restore = new MenuItem(I18n.tr("打开 TBH助手"));
-                restore.addActionListener(e -> SwingUtilities.invokeLater(this::restoreWindow));
-                MenuItem quit = new MenuItem(I18n.tr("退出助手"));
-                quit.addActionListener(e -> SwingUtilities.invokeLater(exit));
-                menu.add(restore);
-                menu.addSeparator();
-                menu.add(quit);
-                trayIcon = new TrayIcon(image, I18n.tr("TBH助手 · 点击打开"), menu);
+                trayIcon = new TrayIcon(image, I18n.tr("TBH助手 · 点击打开"));
                 trayIcon.setImageAutoSize(true);
-                trayIcon.addActionListener(e -> SwingUtilities.invokeLater(this::restoreWindow));
                 trayIcon.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
-                    public void mouseClicked(java.awt.event.MouseEvent event) {
-                        if (event.getButton() == java.awt.event.MouseEvent.BUTTON1) {
-                            SwingUtilities.invokeLater(DesktopSupport.this::restoreWindow);
-                        }
+                    public void mousePressed(java.awt.event.MouseEvent event) {
+                        handleTrayMouse(event);
+                    }
+
+                    @Override
+                    public void mouseReleased(java.awt.event.MouseEvent event) {
+                        handleTrayMouse(event);
                     }
                 });
                 tray.add(trayIcon);
@@ -194,7 +190,58 @@ public final class DesktopSupport {
         }
     }
 
+    /**
+     * Windows 上 AWT 的 PopupMenu 走原生 Win32 菜单，字体不受 setFont 控制，
+     * 缺少中文字形时菜单项会显示成方块。这里改为在托盘图标上手动弹出 Swing 菜单，保证中文正常。
+     */
+    private void handleTrayMouse(java.awt.event.MouseEvent event) {
+        if (event.isPopupTrigger()) {
+            showTrayMenu(event.getXOnScreen(), event.getYOnScreen());
+        } else if (event.getButton() == java.awt.event.MouseEvent.BUTTON1
+                && event.getID() == java.awt.event.MouseEvent.MOUSE_RELEASED) {
+            SwingUtilities.invokeLater(this::restoreWindow);
+        }
+    }
+
+    private void showTrayMenu(int x, int y) {
+        SwingUtilities.invokeLater(() -> {
+            if (trayMenu != null && trayMenu.isVisible()) {
+                return;
+            }
+            Font menuFont = trayMenuFont();
+            JPopupMenu menu = new JPopupMenu();
+            menu.setFont(menuFont);
+            menu.setFocusable(true);
+            JMenuItem restore = new JMenuItem(I18n.tr("打开 TBH助手"));
+            restore.setFont(menuFont);
+            restore.addActionListener(e -> this.restoreWindow());
+            JMenuItem quit = new JMenuItem(I18n.tr("退出助手"));
+            quit.setFont(menuFont);
+            quit.addActionListener(e -> exit.run());
+            menu.add(restore);
+            menu.addSeparator();
+            menu.add(quit);
+            menu.setLocation(x, y);
+            menu.setVisible(true);
+            java.awt.Window popup = SwingUtilities.getWindowAncestor(menu);
+            if (popup != null) {
+                popup.setFocusableWindowState(true);
+                popup.addWindowFocusListener(new java.awt.event.WindowAdapter() {
+                    @Override
+                    public void windowLostFocus(java.awt.event.WindowEvent event) {
+                        menu.setVisible(false);
+                    }
+                });
+            }
+            trayMenu = menu;
+        });
+    }
+
     private void restoreWindow() {
+        if (trayMenu != null) {
+            trayMenu.setVisible(false);
+            trayMenu = null;
+        }
         window.setVisible(true);
         window.setExtendedState(window.getExtendedState() & ~JFrame.ICONIFIED);
         window.toFront();
@@ -203,9 +250,24 @@ public final class DesktopSupport {
     }
 
     public void removeTrayIcon() {
+        if (trayMenu != null) {
+            trayMenu.setVisible(false);
+            trayMenu = null;
+        }
         if (trayIcon != null) {
             SystemTray.getSystemTray().remove(trayIcon);
             trayIcon = null;
         }
+    }
+
+    /** 选择能显示中文的字体，供 Swing 托盘菜单使用。 */
+    static Font trayMenuFont() {
+        for (String name : new String[]{"Microsoft YaHei UI", "微软雅黑", "Microsoft YaHei", "SimHei", "黑体", "SimSun", "宋体"}) {
+            Font candidate = new Font(name, Font.PLAIN, 12);
+            if (candidate.canDisplay('中') && candidate.canDisplay('助') && candidate.canDisplay('退')) {
+                return candidate;
+            }
+        }
+        return new Font(Font.DIALOG, Font.PLAIN, 12);
     }
 }

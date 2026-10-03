@@ -11,12 +11,12 @@ using System.Threading;
 [assembly: AssemblyDescription("TBH助手")]
 [assembly: AssemblyProduct("TBH助手")]
 [assembly: AssemblyCompany("Awan")]
-[assembly: AssemblyVersion("1.3.45.0")]
-[assembly: AssemblyFileVersion("1.3.45.0")]
+[assembly: AssemblyVersion("1.3.46.0")]
+[assembly: AssemblyFileVersion("1.3.46.0")]
 
 internal static class TbhBootstrap
 {
-    private const string AppFileName = "TBH-Helper-v1.3.45.jar";
+    private const string AppFileName = "TBH-Helper-v1.3.46.jar";
     private const string RuntimeFolder = "runtime";
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

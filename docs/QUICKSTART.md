@@ -14,7 +14,7 @@
 | --- | --- |
 | `TBH助手.exe` | 启动入口，双击即可运行，任务管理器显示 TBH助手 |
 | `runtime` | 内置 Java 运行库，随包提供 |
-| `TBH-Helper-v1.3.45.jar` | 助手界面与逻辑 |
+| `TBH-Helper-v1.3.46.jar` | 助手界面与逻辑 |
 | `TBHPlugin-自动腐蚀版.dll` | 游戏插件，一键部署时复制到游戏的 `BepInEx/plugins/TBHPlugin.dll` |
 | `BepInExPackage` | 官方 IL2CPP 后台运行环境，一键部署时释放 |
 | `settings.properties` | 你的助手配置 |
@@ -30,7 +30,7 @@ F8 暂停自动任务；退出助手停止桌面任务。关闭按钮默认缩�
 
 ## 排查连接
 
-确认游戏已经进入角色、插件加载日志包含 `TBH Auto API`，并且本机端口 19090 可用。日志位于游戏的 `BepInEx/LogOutput.log`。助手界面版本显示 `v1.3.45`。
+确认游戏已经进入角色、插件加载日志包含 `TBH Auto API`，并且本机端口 19090 可用。日志位于游戏的 `BepInEx/LogOutput.log`。助手界面版本显示 `v1.3.46`。
 
 首次部署遇到权限错误时，将助手解压到可写目录，并确认 Steam 游戏目录可以写入。游戏目录已有其他 `winhttp.dll` 时，一键部署会先备份被覆盖的文件再写入。
 
