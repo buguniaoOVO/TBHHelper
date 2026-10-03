@@ -27,6 +27,7 @@ import com.lulu.logic.tasks.EquipmentSynthesisTask;
 import com.lulu.logic.tasks.MaterialSynthesisTask;
 import com.lulu.logic.tasks.PlaguelandsTask;
 import com.lulu.logic.tasks.StoreTask;
+import com.lulu.core.UpdateChecker;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef;
 import java.awt.BorderLayout;
@@ -146,6 +147,8 @@ extends JFrame {
     private JCheckBox useApiCheckBox;
     private JButton deployApiBtn;
     private JButton uninstallApiBtn;
+    private JButton updateCheckBtn;
+    private JButton releasePageBtn;
     private JLabel totalBlueLbl;
     private JLabel totalWhiteLbl;
     private JLabel sessionBlueLbl;
@@ -1011,7 +1014,20 @@ extends JFrame {
 
     private JPanel createHelpPage() {
         JPanel body = this.createPageBody();
-        JTextArea text = new JTextArea("快速开始\n\n1. 启动 TBH 游戏，确认顶部状态显示“游戏已连接”。\n2. 在“合成”页面设置合成规则；在“瘟疫之地”页面设置地图检测、自动前往和腐蚀选项。\n3. 点击“手动腐蚀一次”可检查装备与材料混合流程。\n4. 点击“一键开启”后，地图监控、统计采集和自动任务按设置运行。\n5. 点击“全部关闭”或按 F8 停止任务。\n\n品质上限会拦截超出设置的物品。");
+        JTextArea text = new JTextArea("安装与启动\n\n"
+                + "1. 完整解压下载包，双击文件夹里的 TBH助手.exe 打开助手。\n"
+                + "2. 打开“设置/setting”页，先退出游戏，点“一键部署”。助手会写入后台环境和插件，被覆盖的文件先备份到游戏目录下的 TBH-Backups。\n"
+                + "3. 部署完成后，从 Steam 重新启动游戏，等助手顶部显示“游戏已连接”。\n"
+                + "4. 首次部署后必须重启游戏，插件才会生效；以后更新助手只需要重新解压并再点一次“一键部署”。\n\n"
+                + "日常使用\n\n"
+                + "5. 在“合成”页设置合成规则；在“瘟疫之地”页设置地图检测、自动前往和腐蚀选项。\n"
+                + "6. 点击“手动腐蚀一次”可以检查装备与材料的混合流程。\n"
+                + "7. 点击“一键开启”后，地图监控、统计采集和自动任务按设置运行。\n"
+                + "8. 点击“全部关闭”或按 F8 停止任务。关闭窗口时可选择缩小到托盘，自动任务继续运行。\n\n"
+                + "版本更新\n\n"
+                + "9. 在“设置/setting”页点“检测更新”，助手会比对 GitHub 最新版本；有新版本时会下载并在助手退出后替换文件、自动重启。\n"
+                + "10. 点“打开发布页”可在浏览器查看完整更新说明和下载包。\n\n"
+                + "提示：品质上限会拦截超出设置的物品；部署和更新前请先退出游戏。");
         text.setEditable(false);
         text.setLineWrap(true);
         text.setWrapStyleWord(true);
@@ -1660,11 +1676,106 @@ extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 5;
         gbc.weightx = 0.0;
+        p.add(new JLabel("版本更新 / Version:"), gbc);
+        JPanel updatePanel = new JPanel(new FlowLayout(0, 0, 0));
+        updatePanel.setOpaque(false);
+        this.updateCheckBtn = new ModernUI.ActionButton("检测更新");
+        this.updateCheckBtn.addActionListener(e -> this.runUpdateCheck());
+        this.releasePageBtn = new ModernUI.ActionButton("打开发布页");
+        this.releasePageBtn.addActionListener(e -> this.openReleasePage());
+        updatePanel.add(this.updateCheckBtn);
+        updatePanel.add(Box.createRigidArea(new Dimension(10, 0)));
+        updatePanel.add(this.releasePageBtn);
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        p.add(updatePanel, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 6;
+        gbc.gridwidth = 2;
+        p.add(new JLabel("当前版本 " + Config.Global.APP_VERSION + "；检测到新版本可直接下载并替换。"), gbc);
+        gbc.gridwidth = 1;
+        gbc.gridx = 0;
+        gbc.gridy = 7;
+        gbc.weightx = 0.0;
         p.add(new JLabel("界面背景："), gbc);
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         p.add(new JLabel("纯白"), gbc);
         return p;
+    }
+
+    /** 查询 GitHub 最新发布；有更新时询问是否直接替换。 */
+    private void runUpdateCheck() {
+        this.updateCheckBtn.setEnabled(false);
+        I18n.setText(this.updateCheckBtn, "正在检测...");
+        new Thread(() -> {
+            String message;
+            boolean updateAvailable = false;
+            UpdateChecker.Release release = null;
+            try {
+                release = UpdateChecker.latest();
+                updateAvailable = UpdateChecker.hasUpdate(release);
+                message = updateAvailable
+                        ? "发现新版本 " + release.tag + "（当前 " + Config.Global.APP_VERSION + "）。"
+                        : "当前已是最新版本 " + Config.Global.APP_VERSION + "。";
+            } catch (Exception ex) {
+                message = "检测更新失败：" + ex.getMessage();
+            }
+            final String text = message;
+            final boolean available = updateAvailable;
+            final UpdateChecker.Release found = release;
+            SwingUtilities.invokeLater(() -> {
+                this.updateCheckBtn.setEnabled(true);
+                I18n.setText(this.updateCheckBtn, "检测更新");
+                if (!available || found == null) {
+                    JOptionPane.showMessageDialog(this, text, I18n.tr("版本更新"), JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                int choice = JOptionPane.showConfirmDialog(this,
+                        text + "\n是否现在下载并更新？更新会在退出助手后替换文件并自动重启。",
+                        I18n.tr("版本更新"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+                if (choice == 0) this.runUpdateApply(found);
+            });
+        }, "tbh-update-check").start();
+    }
+
+    /** 下载发布包并在助手退出后替换安装目录。 */
+    private void runUpdateApply(UpdateChecker.Release release) {
+        this.updateCheckBtn.setEnabled(false);
+        I18n.setText(this.updateCheckBtn, "正在下载...");
+        new Thread(() -> {
+            String error = null;
+            try {
+                java.nio.file.Path root = new File(System.getProperty("user.dir")).toPath().toRealPath();
+                java.nio.file.Path staged = UpdateChecker.stage(release);
+                UpdateChecker.applyAfterExit(root, staged);
+            } catch (Exception ex) {
+                error = ex.getMessage();
+            }
+            final String failure = error;
+            SwingUtilities.invokeLater(() -> {
+                if (failure != null) {
+                    this.updateCheckBtn.setEnabled(true);
+                    I18n.setText(this.updateCheckBtn, "检测更新");
+                    JOptionPane.showMessageDialog(this, "更新失败：" + failure, I18n.tr("错误"), JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
+                JOptionPane.showMessageDialog(this,
+                        "更新包已下载。助手退出后将自动替换文件并重新启动。",
+                        I18n.tr("版本更新"), JOptionPane.INFORMATION_MESSAGE);
+                this.exitApplication();
+            });
+        }, "tbh-update-apply").start();
+    }
+
+    /** 在系统浏览器打开 GitHub 最新发布页。 */
+    private void openReleasePage() {
+        try {
+            java.awt.Desktop.getDesktop().browse(new java.net.URI(UpdateChecker.RELEASES_PAGE));
+        } catch (Exception ex) {
+            JOptionPane.showMessageDialog(this, "无法打开浏览器：" + ex.getMessage()
+                    + "\n" + UpdateChecker.RELEASES_PAGE, I18n.tr("错误"), JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void startStatsRefreshTimer() {
