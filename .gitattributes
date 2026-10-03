@@ -1,0 +1,10 @@
+* text=auto
+*.java text eol=lf
+*.cs text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.ps1 text eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.jar binary
