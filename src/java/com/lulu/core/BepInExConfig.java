@@ -30,10 +30,9 @@ public final class BepInExConfig {
                 if (trimmed.startsWith("[")) {
                     inSection = SECTION.equals(trimmed);
                 } else if (inSection && trimmed.startsWith("Enabled") && trimmed.contains("=")) {
-                    if (!trimmed.equals("Enabled = false")) {
-                        lines.set(i, "Enabled = false");
-                        changed = true;
-                    }
+                    if (trimmed.equalsIgnoreCase("Enabled = false")) return true;
+                    lines.set(i, "Enabled = false");
+                    changed = true;
                     break;
                 }
             }

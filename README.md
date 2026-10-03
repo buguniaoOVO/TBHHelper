@@ -7,7 +7,7 @@
 
 TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自动合成、瘟疫之地与腐蚀设置，以及带道具图片和市场参考价的仓库页面。
 
-**[下载 v1.3.47](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.47)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.48](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.48)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![运行概览](docs/images/01-overview.png)
 
@@ -72,14 +72,16 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 首次安装：
 
-1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.47) 下载 Windows x64 ZIP，完整解压到任意可写目录。
+1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.48) 下载 Windows x64 ZIP，完整解压到任意可写目录。
 2. 双击文件夹里的 `TBH助手.exe` 打开助手，界面显示当前版本。
 3. **先退出游戏**，进入“设置/setting”页，点“一键部署”。助手会按已保存路径、运行中的游戏、Steam 库的顺序定位游戏目录；都找不到时弹出目录选择框，选含 `TaskBarHero.exe` 的文件夹即可。
 4. 部署会写入后台运行环境与插件。被覆盖的文件先备份到游戏目录下的 `TBH-Backups`，已有配置、其他插件和生成的 interop 文件保留。部署时同时关闭 BepInEx 控制台窗口。
-5. **从 Steam 重新启动游戏**，等助手顶部显示“游戏已连接”。首次部署必须重启游戏，插件才会加载。
+5. **从 Steam 重新启动游戏**，等助手顶部显示“游戏已连接”。该状态表示助手已收到本地插件 API 的有效响应；首次部署必须重启游戏，插件才会加载。
 6. 检查“合成”“瘟疫之地”等页面的规则，再点“一键开启”。开箱与仓库整理随总任务运行；合成、腐蚀与自动前往地图按各自开关执行。F8 或“全部关闭”停止。
 
 首次启动游戏需要生成接口程序集，请给它留出初始化时间。新包的合成、腐蚀和自动前往地图默认关闭，包含仓库默认关闭，铭文材料排除默认开启。
+
+若游戏窗口已打开而助手显示“插件未连接”，请确认游戏已进入角色，并查看游戏目录下 `BepInEx/LogOutput.log` 是否出现 `TBH Auto API` 和 `监听中: http://127.0.0.1:19090/api/`。助手日志中的 `Connection refused: getsockopt` 表示当时本机 19090 端口没有插件服务接受连接；关闭游戏后重新部署并从 Steam 启动，再检查日志里的插件启动错误或端口冲突。
 
 ## 更新
 
@@ -96,7 +98,7 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 - 历史日志缺少地图、来源或完整数量时，记录可能显示未知或与当前库存不同。
 - 旧版灵魂石历史记录尚未重建；品质汇总已排除该类道具。
-- 本次发布经过编译、无消耗填充 / 退回检查，并参考本机运行日志；跨电脑首次部署尚未做完整实测。
+- 本次发布经过编译、发布包审计和部署关键文件校验；跨电脑首次启动仍需按快速上手检查游戏插件日志。
 - 截图来自本机实际运行，物品、数量、价格随存档和市场变化。
 
 ## 源码与构建

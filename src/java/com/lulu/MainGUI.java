@@ -110,6 +110,8 @@ extends JFrame {
     private JLabel automationStateLabel;
     private JLabel footerStatusLabel;
     private JLabel overviewConnectionValue;
+    private volatile boolean gameWindowDetected;
+    private volatile boolean pluginApiConnected;
     private JLabel overviewAutomationValue;
     private JLabel overviewCorrosionValue;
     private JTextField blueCdField;
@@ -379,7 +381,7 @@ extends JFrame {
         metrics.setOpaque(false);
         metrics.setMaximumSize(new Dimension(Integer.MAX_VALUE, (int)(132 * APP_SCALE)));
         metrics.setAlignmentX(Component.LEFT_ALIGNMENT);
-        metrics.add(this.createMetricCard("游戏状态", this.overviewConnectionValue, "检测 TaskBarHero 窗口", CYAN_ACCENT));
+        metrics.add(this.createMetricCard("游戏状态", this.overviewConnectionValue, "检测游戏插件 API", CYAN_ACCENT));
         metrics.add(this.createMetricCard("自动化", this.overviewAutomationValue, "开始与停止状态", GOLD_ACCENT));
         metrics.add(this.createMetricCard("腐蚀任务", this.overviewCorrosionValue, "装备与材料混合腐蚀", PURPLE_ACCENT));
         overview.add(metrics);
@@ -1062,15 +1064,13 @@ extends JFrame {
     }
 
     private void updateRuntimeStatus() {
-        boolean gameOpen = false;
-        try {
-            gameOpen = User32.INSTANCE.FindWindow(null, "TaskBarHero") != null;
-        } catch (Exception ignored) {
-        }
+        boolean gameOpen = this.gameWindowDetected;
+        boolean connected = this.pluginApiConnected;
+        String connectionText = connected ? "● 游戏已连接" : (gameOpen ? "● 插件未连接" : "● 等待游戏");
         if (this.connectionLabel != null) {
-            I18n.setText(this.connectionLabel, gameOpen ? "● 游戏已连接" : "● 等待游戏");
-            this.connectionLabel.setForeground(gameOpen ? new Color(12, 123, 68) : MUTED_COLOR);
-            this.connectionLabel.setBackground(gameOpen ? new Color(235, 248, 241) : SURFACE_ALT);
+            I18n.setText(this.connectionLabel, connectionText);
+            this.connectionLabel.setForeground(connected ? new Color(12, 123, 68) : (gameOpen ? GOLD_ACCENT : MUTED_COLOR));
+            this.connectionLabel.setBackground(connected ? new Color(235, 248, 241) : SURFACE_ALT);
         }
         if (this.automationStateLabel != null) {
             I18n.setText(this.automationStateLabel, this.isRunning ? "● 自动化运行中" : "● 自动化已停止");
@@ -1078,7 +1078,7 @@ extends JFrame {
             this.automationStateLabel.setBackground(this.isRunning ? new Color(255, 247, 229) : SURFACE_ALT);
         }
         if (this.overviewConnectionValue != null) {
-            I18n.setText(this.overviewConnectionValue, gameOpen ? "已连接" : "未连接");
+            I18n.setText(this.overviewConnectionValue, connected ? "已连接" : (gameOpen ? "插件未连接" : "未连接"));
         }
         if (this.overviewAutomationValue != null) {
             I18n.setText(this.overviewAutomationValue, this.isRunning ? "运行中" : "已停止");
@@ -1795,6 +1795,8 @@ extends JFrame {
                     boolean gameOpen = User32.INSTANCE.FindWindow(null, "TaskBarHero") != null;
                     String gameStatus = gameOpen ? DllApiClient.getGameStatus() : null;
                     boolean pluginReady = gameStatus != null && gameStatus.startsWith("SUCCESS|");
+                    this.gameWindowDetected = gameOpen;
+                    this.pluginApiConnected = pluginReady;
                     String sourceStatus;
                     if (!gameOpen) {
                         sourceStatus = "等待游戏连接；新开箱和战斗事件将在连接后记录。";
@@ -1824,6 +1826,7 @@ extends JFrame {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (Exception e) {
+                    this.pluginApiConnected = false;
                     System.err.println("[统计] 游戏事件读取失败: " + e.getMessage());
                     try {
                         Thread.sleep(5000L);

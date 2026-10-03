@@ -57,16 +57,20 @@ public final class DeployManager {
             Path game = Paths.get(gamePath).toRealPath();
             copyEnvironment(source.toPath(), game);
             Path plugin = copyPlugin(game);
+            verifyDeployment(source.toPath(), game, plugin);
             boolean hidConsole = BepInExConfig.disableConsole(game);
-            System.out.println(">>> [环境部署] 已关闭 BepInEx 控制台窗口: " + hidConsole);
-            System.out.println("✅ [环境部署] 运行环境与插件已就绪: " + plugin);
+            System.out.println(">>> [环境部署] BepInEx 控制台配置已设为关闭: " + hidConsole);
+            System.out.println("✅ [环境部署] 运行环境与插件已部署，关键文件校验通过: " + plugin);
             JOptionPane.showMessageDialog(null,
-                    "后台环境与插件部署完成。\n\n请启动游戏，等助手显示“游戏已连接”后再开启自动任务。",
+                    "后台环境与插件已部署，关键文件校验通过。\n\n请从 Steam 启动游戏，等助手显示“游戏已连接”后再开启自动任务。\n若显示“插件未连接”，请查看游戏目录下 BepInEx/LogOutput.log 的插件启动记录。",
                     "部署完成", JOptionPane.INFORMATION_MESSAGE);
             return true;
-        } catch (IOException ex) {
+        } catch (Exception ex) {
             System.out.println("❌ [环境部署] 失败: " + ex.getMessage());
-            JOptionPane.showMessageDialog(null, "部署失败：" + ex.getMessage(), "环境部署", JOptionPane.ERROR_MESSAGE);
+            String reason = ex instanceof java.nio.file.AccessDeniedException
+                    ? "\n\n游戏目录没有写入权限。请将助手放到可写目录，并以管理员身份重新启动助手后再部署。"
+                    : "";
+            JOptionPane.showMessageDialog(null, "部署失败：" + ex.getMessage() + reason, "环境部署", JOptionPane.ERROR_MESSAGE);
             return false;
         }
     }
@@ -222,6 +226,29 @@ public final class DeployManager {
         Files.createDirectories(target.getParent());
         Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
         return target;
+    }
+
+    private static void verifyDeployment(Path source, Path game, Path plugin) throws IOException {
+        String[] required = new String[]{
+                "winhttp.dll",
+                "doorstop_config.ini",
+                "BepInEx/core/BepInEx.Core.dll",
+                "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
+        };
+        for (String relative : required) {
+            Path packaged = source.resolve(relative);
+            Path installed = game.resolve(relative);
+            if (!Files.isRegularFile(packaged) || !Files.isRegularFile(installed)
+                    || Files.size(packaged) != Files.size(installed)
+                    || Files.mismatch(packaged, installed) != -1L) {
+                throw new IOException("后台环境文件缺失或校验不符: " + relative);
+            }
+        }
+        Path packagedPlugin = Paths.get(System.getProperty("user.dir"), PLUGIN_FILE);
+        if (!Files.isRegularFile(plugin) || Files.size(packagedPlugin) != Files.size(plugin)
+                || Files.mismatch(packagedPlugin, plugin) != -1L) {
+            throw new IOException("游戏插件未能完整写入: " + plugin);
+        }
     }
 
     private static String detectByRunningProcess() {
