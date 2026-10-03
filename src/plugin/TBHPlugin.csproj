@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>TBHPlugin</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <TargetFramework>netcoreapp6.0</TargetFramework>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>12.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <GameBepInExDir>$(GameDir)\BepInEx\core</GameBepInExDir>
+    <GameInteropDir>$(GameDir)\BepInEx\interop</GameInteropDir>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+  <PropertyGroup />
+  <ItemGroup />
+  <ItemGroup>
+    <Reference Include="BepInEx.Core"><HintPath>$(GameBepInExDir)\BepInEx.Core.dll</HintPath></Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP"><HintPath>$(GameBepInExDir)\BepInEx.Unity.IL2CPP.dll</HintPath></Reference>
+    <Reference Include="0Harmony"><HintPath>$(GameBepInExDir)\0Harmony.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameInteropDir)\UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="Unity.InputSystem"><HintPath>$(GameInteropDir)\Unity.InputSystem.dll</HintPath></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(GameInteropDir)\Assembly-CSharp.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(GameInteropDir)\UnityEngine.UI.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(GameInteropDir)\UnityEngine.UIModule.dll</HintPath></Reference>
+    <Reference Include="Il2Cppmscorlib"><HintPath>$(GameInteropDir)\Il2Cppmscorlib.dll</HintPath></Reference>
+    <Reference Include="Il2CppInterop.Runtime"><HintPath>$(GameBepInExDir)\Il2CppInterop.Runtime.dll</HintPath></Reference>
+    <Reference Include="ACTk.Runtime"><HintPath>$(GameInteropDir)\ACTk.Runtime.dll</HintPath></Reference>
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(GameInteropDir)\Unity.TextMeshPro.dll</HintPath></Reference>
+    <Reference Include="Unity.Localization"><HintPath>$(GameInteropDir)\Unity.Localization.dll</HintPath></Reference>
+    <Reference Include="Unity.ResourceManager"><HintPath>$(GameInteropDir)\Unity.ResourceManager.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
