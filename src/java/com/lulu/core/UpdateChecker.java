@@ -1,14 +1,9 @@
 package com.lulu.core;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.lulu.config.Config;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.Reader;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -27,7 +22,8 @@ import java.util.zip.ZipInputStream;
 public final class UpdateChecker {
     private static final String OWNER = "buguniaoOVO";
     private static final String REPO = "TBHHelper";
-    private static final String API_LATEST = "https://api.github.com/repos/" + OWNER + "/" + REPO + "/releases/latest";
+    /** 发布页跳转不需要 API 令牌，也没有未认证限流，比 api.github.com 更稳。 */
+    private static final String LATEST_TAG_REDIRECT = "https://github.com/" + OWNER + "/" + REPO + "/releases/latest";
     public static final String RELEASES_PAGE = "https://github.com/" + OWNER + "/" + REPO + "/releases/latest";
 
     /** 不会被更新覆盖的用户文件。 */
@@ -52,23 +48,32 @@ public final class UpdateChecker {
     }
 
     public static Release latest() throws IOException {
-        JsonObject json = new JsonParser().parse(readTextValue(API_LATEST)).getAsJsonObject();
         Release release = new Release();
-        release.tag = text(json, "tag_name");
-        release.name = text(json, "name");
-        String html = text(json, "html_url");
-        if (!html.isEmpty()) release.pageUrl = html;
-        if (json.has("assets") && json.get("assets").isJsonArray()) {
-            for (JsonElement element : json.getAsJsonArray("assets")) {
-                JsonObject asset = element.getAsJsonObject();
-                String name = text(asset, "name");
-                if (!name.endsWith(".zip") || !name.contains("win-x64")) continue;
-                release.assetName = name;
-                release.assetUrl = text(asset, "browser_download_url");
-                break;
-            }
-        }
+        release.tag = latestTag();
+        release.name = release.tag;
+        release.pageUrl = "https://github.com/" + OWNER + "/" + REPO + "/releases/tag/" + release.tag;
+        release.assetName = "TBHHelper-" + release.tag + "-win-x64.zip";
+        release.assetUrl = "https://github.com/" + OWNER + "/" + REPO + "/releases/download/"
+                + release.tag + "/" + release.assetName;
         return release;
+    }
+
+    /** 读取 releases/latest 的 302 跳转地址，末尾即最新标签。 */
+    private static String latestTag() throws IOException {
+        HttpURLConnection connection = open(LATEST_TAG_REDIRECT);
+        connection.setInstanceFollowRedirects(false);
+        try {
+            int status = connection.getResponseCode();
+            String location = connection.getHeaderField("Location");
+            if (location == null || location.isEmpty()) throw new IOException("发布页没有返回跳转地址（HTTP " + status + "）。");
+            int marker = location.lastIndexOf("/tag/");
+            if (marker < 0) throw new IOException("发布页跳转地址无法解析版本。");
+            String tag = location.substring(marker + 5).trim();
+            if (tag.isEmpty() || !Character.isDigit(tag.charAt(tag.length() - 1))) throw new IOException("发布页版本号无法解析。");
+            return tag;
+        } finally {
+            connection.disconnect();
+        }
     }
 
     /** 下载并解压。返回可直接覆盖到安装目录的暂存目录。 */
@@ -77,6 +82,7 @@ public final class UpdateChecker {
         Path staging = Files.createTempDirectory("TBHHelper-update-");
         Path archive = staging.resolve("download.zip");
         HttpURLConnection connection = open(release.assetUrl);
+        connection.setInstanceFollowRedirects(true);
         try (InputStream input = connection.getInputStream(); OutputStream output = Files.newOutputStream(archive)) {
             copy(input, output);
         } finally {
@@ -191,33 +197,13 @@ public final class UpdateChecker {
         return "'" + path.toString().replace("'", "''") + "'";
     }
 
-    private static String text(JsonObject json, String key) {
-        return json.has(key) && !json.get(key).isJsonNull() ? json.get(key).getAsString() : "";
-    }
-
-    private static String readTextValue(String address) throws IOException {
-        HttpURLConnection connection = open(address);
-        try (InputStream input = connection.getInputStream()) {
-            StringBuilder builder = new StringBuilder();
-            try (Reader reader = new InputStreamReader(input, StandardCharsets.UTF_8)) {
-                char[] buffer = new char[4096];
-                int count;
-                while ((count = reader.read(buffer)) > 0) builder.append(buffer, 0, count);
-            }
-            return builder.toString();
-        } finally {
-            connection.disconnect();
-        }
-    }
-
     private static HttpURLConnection open(String address) throws IOException {
         HttpURLConnection connection = (HttpURLConnection)new URL(address).openConnection();
-        connection.setInstanceFollowRedirects(true);
+        connection.setInstanceFollowRedirects(false);
         connection.setConnectTimeout(10000);
         connection.setReadTimeout(30000);
         connection.setUseCaches(false);
         connection.setRequestProperty("User-Agent", "TBHHelper/" + Config.Global.APP_VERSION);
-        connection.setRequestProperty("Accept", "application/vnd.github+json");
         return connection;
     }
 
