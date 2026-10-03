@@ -1,14 +1,3 @@
-/*
- * Decompiled with CFR 0.152.
- * 
- * Could not load the following classes:
- *  com.sun.jna.platform.win32.Kernel32
- *  com.sun.jna.platform.win32.Psapi
- *  com.sun.jna.platform.win32.User32
- *  com.sun.jna.platform.win32.WinDef$HWND
- *  com.sun.jna.platform.win32.WinNT$HANDLE
- *  com.sun.jna.ptr.IntByReference
- */
 package com.lulu.core;
 
 import com.lulu.config.Config;
@@ -22,56 +11,66 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.file.FileVisitResult;
-import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileAttribute;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
+import javax.swing.UIManager;
 
-public class DeployManager {
+/** 把附带的后台运行环境和游戏插件部署到游戏目录。 */
+public final class DeployManager {
     private static final String GAME_EXE_NAME = "TaskBarHero.exe";
+    private static final String GAME_FOLDER_NAME = "TaskbarHero";
+    private static final String PACKAGE_FOLDER = "BepInExPackage";
+    private static final String PLUGIN_FILE = "TBHPlugin-自动腐蚀版.dll";
+
+    private DeployManager() {
+    }
 
     public static boolean checkAndDeploy() {
-        String gamePath = new File(Config.UserData.GAME_PATH, GAME_EXE_NAME).isFile() ? Config.UserData.GAME_PATH : DeployManager.detectGamePath();
-        if (gamePath == null) {
+        if (isGameRunning()) {
+            JOptionPane.showMessageDialog(null, "部署会写入游戏目录，请先正常退出 TaskBarHero 再重试。", "游戏仍在运行", JOptionPane.INFORMATION_MESSAGE);
             return false;
         }
-        Config.UserData.saveGamePath(gamePath);
-        System.out.println(">>> [\u73af\u5883\u90e8\u7f72] \u5df2\u81ea\u52a8\u8bb0\u5f55\u6e38\u620f\u7edd\u5bf9\u8def\u5f84: " + gamePath);
-        File bepInExFolder = new File(gamePath, "BepInEx");
-        File winhttpDll = new File(gamePath, "winhttp.dll");
-        File dotnetFolder = new File(gamePath, "dotnet");
-        File doorstopIni = new File(gamePath, "doorstop_config.ini");
-        if (bepInExFolder.exists() && winhttpDll.exists() && dotnetFolder.exists() && doorstopIni.exists()) {
-            System.out.println(">>> [\u73af\u5883\u90e8\u7f72] \u68c0\u6d4b\u5230\u73af\u5883\u5df2\u5b58\u5728\u4e14\u5b8c\u6574\uff0c\u8df3\u8fc7\u5b89\u88c5\u3002");
-            JOptionPane.showMessageDialog(null, "\u68c0\u6d4b\u5230\u6e38\u620f\u5df2\u5b89\u88c5\u597d\u540e\u53f0\u81ea\u52a8\u5316\u73af\u5883\uff0c\u65e0\u9700\u91cd\u590d\u5b89\u88c5\uff01", "\u73af\u5883\u5df2\u5c31\u7eea", 1);
-            return true;
+        String gamePath = resolveGameDirectory();
+        if (gamePath == null) {
+            JOptionPane.showMessageDialog(null, "没有找到 TaskBarHero.exe，请在下一步选择游戏目录。", "找不到游戏", JOptionPane.WARNING_MESSAGE);
+            return false;
         }
-        System.out.println(">>> [\u73af\u5883\u90e8\u7f72] \u73af\u5883\u7f3a\u5931\u6216\u9700\u9996\u6b21\u5b89\u88c5\uff01\u6b63\u5728\u5c06\u57fa\u7840\u73af\u5883\u91ca\u653e\u81f3: " + gamePath);
-        File sourceDir = new File(System.getProperty("user.dir"), "BepInExPackage");
-        if (!sourceDir.exists()) {
-            System.out.println("\u26a0\ufe0f [\u73af\u5883\u90e8\u7f72] \u81f4\u547d\u9519\u8bef\uff1a\u627e\u4e0d\u5230 BepInExPackage \u5e95\u5305\u6587\u4ef6\u5939\uff01");
+        gamePath = new File(gamePath).getAbsolutePath();
+        Config.UserData.saveGamePath(gamePath);
+        System.out.println(">>> [环境部署] 游戏目录: " + gamePath);
+        File source = new File(System.getProperty("user.dir"), PACKAGE_FOLDER);
+        if (!source.isDirectory()) {
+            System.out.println("⚠️ [环境部署] 安装目录缺少 " + PACKAGE_FOLDER + "，请重新解压完整下载包。");
+            JOptionPane.showMessageDialog(null, "安装目录缺少 " + PACKAGE_FOLDER + " 文件夹，请重新解压完整下载包。", "缺少运行环境", JOptionPane.ERROR_MESSAGE);
             return false;
         }
         try {
-            DeployManager.copyDirectory(sourceDir.toPath(), Paths.get(gamePath, new String[0]));
-            System.out.println("\u2705 [\u73af\u5883\u90e8\u7f72] 4 \u9879\u6838\u5fc3 API \u73af\u5883\u6587\u4ef6\u91ca\u653e\u6210\u529f\uff01");
-            JOptionPane.showMessageDialog(null, "\u9996\u6b21\u540e\u53f0\u8fd0\u884c\u73af\u5883\u914d\u7f6e\u6210\u529f\uff01\n\n\u26a0\ufe0f \u8bf7\u3010\u52a1\u5fc5\u5173\u95ed\u5e76\u91cd\u65b0\u542f\u52a8\u4e00\u6b21\u6e38\u620f\u5ba2\u6237\u7aef\u3011\uff0c\u5426\u5219\u540e\u53f0\u81ea\u52a8\u5316\u529f\u80fd\u5c06\u65e0\u6cd5\u751f\u6548\uff01", "\u73af\u5883\u521d\u59cb\u5316\u5b8c\u6210", 1);
+            Path game = Paths.get(gamePath).toRealPath();
+            copyEnvironment(source.toPath(), game);
+            Path plugin = copyPlugin(game);
+            System.out.println("✅ [环境部署] 运行环境与插件已就绪: " + plugin);
+            JOptionPane.showMessageDialog(null,
+                    "后台环境与插件部署完成。\n\n请启动游戏，等助手显示“游戏已连接”后再开启自动任务。",
+                    "部署完成", JOptionPane.INFORMATION_MESSAGE);
             return true;
-        }
-        catch (IOException e) {
-            System.out.println("\u274c [\u73af\u5883\u90e8\u7f72] \u6587\u4ef6\u91ca\u653e\u5931\u8d25: " + e.getMessage());
+        } catch (IOException ex) {
+            System.out.println("❌ [环境部署] 失败: " + ex.getMessage());
+            JOptionPane.showMessageDialog(null, "部署失败：" + ex.getMessage(), "环境部署", JOptionPane.ERROR_MESSAGE);
             return false;
         }
     }
 
     public static boolean uninstall() {
-        if (DeployManager.isGameRunning()) {
+        if (isGameRunning()) {
             JOptionPane.showMessageDialog(null, "请退出游戏后再停用插件。", "游戏仍在运行", JOptionPane.INFORMATION_MESSAGE);
             return false;
         }
@@ -88,7 +87,7 @@ public class DeployManager {
             Path backup = game.resolve("TBH-Backups").resolve("disabled-" + System.currentTimeMillis()).resolve("TBHPlugin.dll.disabled");
             Files.createDirectories(backup.getParent());
             Files.move(plugin, backup);
-            JOptionPane.showMessageDialog(null, "TBH插件已移到备份目录。共享运行环境与其他插件保留；再次启动助手会部署本插件。", "插件已停用", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(null, "TBH插件已移到备份目录。共享运行环境与其他插件保留；再次点击一键部署会恢复本插件。", "插件已停用", JOptionPane.INFORMATION_MESSAGE);
             return true;
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(null, "停用失败：" + ex.getMessage(), "TBH助手", JOptionPane.ERROR_MESSAGE);
@@ -96,150 +95,169 @@ public class DeployManager {
         }
     }
 
-    private static String detectGamePath() {
-        String path = null;
-        System.out.println(">>> [\u73af\u5883\u63a2\u6d4b] \u6b63\u5728\u5c1d\u8bd5 Level 1: JNA \u5185\u5b58\u76f4\u8bfb...");
-        path = DeployManager.detectByJNA();
-        if (path != null) {
-            return path;
+    /** 依次尝试已保存路径、运行中的游戏、Steam 库，最后让用户手动选择。 */
+    private static String resolveGameDirectory() {
+        if (isGameDirectory(Config.UserData.GAME_PATH)) return Config.UserData.GAME_PATH;
+        String running = detectByRunningProcess();
+        if (running != null) return running;
+        for (String library : steamLibraries()) {
+            File candidate = new File(new File(new File(library, "steamapps"), "common"), GAME_FOLDER_NAME);
+            if (isGameDirectory(candidate.getAbsolutePath())) return candidate.getAbsolutePath();
         }
-        System.out.println(">>> [\u73af\u5883\u63a2\u6d4b] JNA \u8bfb\u53d6\u53d7\u9650\uff0c\u6b63\u5728\u964d\u7ea7\u81f3 Level 2: PowerShell...");
-        path = DeployManager.detectByPowerShell();
-        if (path != null) {
-            return path;
-        }
-        System.out.println(">>> [\u73af\u5883\u63a2\u6d4b] PowerShell \u6267\u884c\u5931\u8d25\uff0c\u6b63\u5728\u964d\u7ea7\u81f3 Level 3: WMIC\u515c\u5e95...");
-        path = DeployManager.detectByWMIC();
-        return path;
+        return pickDirectory();
     }
 
-    /*
-     * WARNING - Removed try catching itself - possible behaviour change.
-     * Enabled aggressive block sorting
-     * Enabled unnecessary exception pruning
-     * Enabled aggressive exception aggregation
-     */
-    private static String detectByJNA() {
+    private static boolean isGameDirectory(String folder) {
+        return folder != null && !folder.trim().isEmpty() && new File(folder, GAME_EXE_NAME).isFile();
+    }
+
+    private static String pickDirectory() {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception ignored) {
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setDialogTitle("请选择 TaskBarHero.exe 所在的游戏文件夹");
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setAcceptAllFileFilterUsed(false);
+        while (true) {
+            if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return null;
+            String selected = chooser.getSelectedFile().getAbsolutePath();
+            if (isGameDirectory(selected) || isGameDirectory(new File(selected, GAME_FOLDER_NAME).getAbsolutePath()))
+                return isGameDirectory(selected) ? selected : new File(selected, GAME_FOLDER_NAME).getAbsolutePath();
+            JOptionPane.showMessageDialog(null, "该文件夹里没有 " + GAME_EXE_NAME + "，请选择游戏安装目录。", "目录不正确", JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    private static Set<String> steamLibraries() {
+        Set<String> libraries = new LinkedHashSet<String>();
+        for (String query : new String[]{
+                "HKEY_CURRENT_USER\\Software\\Valve\\Steam",
+                "HKEY_LOCAL_MACHINE\\SOFTWARE\\WOW6432Node\\Valve\\Steam"}) {
+            String install = registryValue(query, "SteamPath");
+            if (install == null) install = registryValue(query, "InstallPath");
+            if (install != null) addSteamLibrary(libraries, install);
+        }
+        for (String guess : new String[]{"C:\\Program Files (x86)\\Steam", "C:\\Program Files\\Steam", "D:\\Steam", "D:\\SteamLibrary", "E:\\SteamLibrary"}) {
+            addSteamLibrary(libraries, guess);
+        }
+        return libraries;
+    }
+
+    private static void addSteamLibrary(Set<String> libraries, String steamRoot) {
+        if (steamRoot == null) return;
+        File root = new File(steamRoot.replace("\"", ""));
+        if (!root.isDirectory()) return;
+        libraries.add(root.getAbsolutePath());
+        File vdf = new File(new File(root, "steamapps"), "libraryfolders.vdf");
+        if (!vdf.isFile()) return;
+        try {
+            for (String line : Files.readAllLines(vdf.toPath())) {
+                int key = line.indexOf("\"path\"");
+                if (key < 0) continue;
+                int start = line.indexOf('\"', key + 6);
+                int end = line.indexOf('\"', start + 1);
+                if (start < 0 || end <= start) continue;
+                String path = line.substring(start + 1, end).replace("\\\\", "\\");
+                if (new File(path).isDirectory()) libraries.add(new File(path).getAbsolutePath());
+            }
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static String registryValue(String key, String name) {
+        try {
+            Process process = Runtime.getRuntime().exec(new String[]{"reg", "query", key, "/v", name});
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "GBK"))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    int marker = line.toUpperCase(Locale.ROOT).indexOf(name.toUpperCase(Locale.ROOT));
+                    if (marker < 0) continue;
+                    String[] parts = line.trim().split("\\s{2,}");
+                    if (parts.length >= 3) return parts[parts.length - 1].trim();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static void copyEnvironment(Path source, Path game) throws IOException {
+        String prefix = source.toString() + File.separator;
+        List<Path> files = new ArrayList<Path>();
+        Files.walk(source).forEach(path -> { if (Files.isRegularFile(path)) files.add(path); });
+        for (Path path : files) {
+            String relative = path.toString().substring(prefix.length());
+            String lower = relative.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("bepinex" + File.separator + "config")
+                    || lower.startsWith("bepinex" + File.separator + "plugins")
+                    || lower.startsWith("bepinex" + File.separator + "interop")) {
+                continue;
+            }
+            Path target = game.resolve(relative).normalize();
+            if (!target.startsWith(game)) throw new IOException("部署路径超出游戏目录。");
+            if (Files.exists(target)) {
+                if (Files.mismatch(path, target) == -1L) continue;
+                Path backup = game.resolve("TBH-Backups").resolve(relative);
+                Files.createDirectories(backup.getParent());
+                Files.copy(target, backup, StandardCopyOption.REPLACE_EXISTING);
+            }
+            Files.createDirectories(target.getParent());
+            Files.copy(path, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static Path copyPlugin(Path game) throws IOException {
+        Path source = Paths.get(System.getProperty("user.dir"), PLUGIN_FILE);
+        if (!Files.isRegularFile(source)) throw new IOException("安装目录缺少 " + PLUGIN_FILE + "。");
+        Path target = game.resolve("BepInEx/plugins/TBHPlugin.dll");
+        if (Files.exists(target)) {
+            if (Files.mismatch(source, target) == -1L) return target;
+            Path backup = game.resolve("TBH-Backups").resolve("TBHPlugin-" + System.currentTimeMillis() + ".dll");
+            Files.createDirectories(backup.getParent());
+            Files.copy(target, backup, StandardCopyOption.REPLACE_EXISTING);
+        }
+        Files.createDirectories(target.getParent());
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+        return target;
+    }
+
+    private static String detectByRunningProcess() {
         try {
             WinDef.HWND hwnd = User32.INSTANCE.FindWindow(null, "TaskBarHero");
-            if (hwnd == null) {
-                return null;
-            }
+            if (hwnd == null) return null;
             IntByReference pid = new IntByReference();
             User32.INSTANCE.GetWindowThreadProcessId(hwnd, pid);
-            WinNT.HANDLE hProcess = Kernel32.INSTANCE.OpenProcess(1040, false, pid.getValue());
-            if (hProcess == null) {
-                return null;
-            }
+            WinNT.HANDLE handle = Kernel32.INSTANCE.OpenProcess(1040, false, pid.getValue());
+            if (handle == null) return null;
             try {
-                char[] pathBuffer = new char[1024];
-                int length = Psapi.INSTANCE.GetModuleFileNameExW(hProcess, null, pathBuffer, pathBuffer.length);
+                char[] buffer = new char[1024];
+                int length = Psapi.INSTANCE.GetModuleFileNameExW(handle, null, buffer, buffer.length);
                 if (length <= 0) return null;
-                String fullExePath = new String(pathBuffer, 0, length);
-                String string = new File(fullExePath).getParent();
-                return string;
+                return new File(new String(buffer, 0, length)).getParent();
+            } finally {
+                Kernel32.INSTANCE.CloseHandle(handle);
             }
-            finally {
-                Kernel32.INSTANCE.CloseHandle(hProcess);
-            }
-        }
-        catch (Throwable throwable) {
-            // empty catch block
-        }
-        return null;
-    }
-
-    private static String detectByPowerShell() {
-        try {
-            String line;
-            String processName = GAME_EXE_NAME.replace(".exe", "");
-            String[] cmd = new String[]{"powershell", "-NoProfile", "-Command", "(Get-Process -Name '" + processName + "' -ErrorAction SilentlyContinue).Path"};
-            Process process = Runtime.getRuntime().exec(cmd);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "GBK"));
-            while ((line = reader.readLine()) != null) {
-                if (!(line = line.trim()).toLowerCase().endsWith(GAME_EXE_NAME.toLowerCase())) continue;
-                return new File(line).getParent();
-            }
-        }
-        catch (Exception exception) {
-            // empty catch block
-        }
-        return null;
-    }
-
-    private static String detectByWMIC() {
-        try {
-            String line;
-            String cmd = "wmic process where \"name='TaskBarHero.exe'\" get ExecutablePath";
-            Process process = Runtime.getRuntime().exec(cmd);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "GBK"));
-            while ((line = reader.readLine()) != null) {
-                if (!(line = line.trim()).toLowerCase().endsWith(GAME_EXE_NAME.toLowerCase())) continue;
-                return new File(line).getParent();
-            }
-        }
-        catch (Exception exception) {
-            // empty catch block
+        } catch (Throwable ignored) {
         }
         return null;
     }
 
     private static boolean isGameRunning() {
         try {
-            WinDef.HWND hwnd = User32.INSTANCE.FindWindow(null, "TaskBarHero");
-            if (hwnd != null) {
-                return true;
-            }
-        }
-        catch (Throwable hwnd) {
-            // empty catch block
+            if (User32.INSTANCE.FindWindow(null, "TaskBarHero") != null) return true;
+        } catch (Throwable ignored) {
         }
         try {
-            String line;
-            String cmd = "tasklist /FI \"IMAGENAME eq TaskBarHero.exe\" /NH";
-            Process process = Runtime.getRuntime().exec(cmd);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "GBK"));
-            while ((line = reader.readLine()) != null) {
-                if (!line.toLowerCase().contains(GAME_EXE_NAME.toLowerCase())) continue;
-                return true;
-            }
-        }
-        catch (Exception exception) {
-            // empty catch block
-        }
-        return false;
-    }
-
-    private static void copyDirectory(final Path source, final Path target) throws IOException {
-        Files.walkFileTree(source, (FileVisitor<? super Path>)new SimpleFileVisitor<Path>(){
-
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
-                Files.createDirectories(target.resolve(source.relativize(dir)), new FileAttribute[0]);
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                Files.copy(file, target.resolve(source.relativize(file)), StandardCopyOption.REPLACE_EXISTING);
-                return FileVisitResult.CONTINUE;
-            }
-        });
-    }
-
-    private static void deleteDirectory(File dir) {
-        if (dir.exists()) {
-            File[] files = dir.listFiles();
-            if (files != null) {
-                for (File file : files) {
-                    if (file.isDirectory()) {
-                        DeployManager.deleteDirectory(file);
-                        continue;
-                    }
-                    file.delete();
+            Process process = Runtime.getRuntime().exec(new String[]{"tasklist", "/FI", "IMAGENAME eq " + GAME_EXE_NAME, "/NH"});
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "GBK"))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.toLowerCase(Locale.ROOT).contains(GAME_EXE_NAME.toLowerCase(Locale.ROOT))) return true;
                 }
             }
-            dir.delete();
+        } catch (Exception ignored) {
         }
+        return false;
     }
 }

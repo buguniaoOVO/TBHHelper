@@ -1606,12 +1606,12 @@ extends JFrame {
         gbc.gridx = 0;
         gbc.gridy = 4;
         gbc.weightx = 0.0;
-        p.add((Component)new JLabel("BepInEx\u73af\u5883\u5f15\u64ce:"), gbc);
+        p.add((Component)new JLabel("\u540e\u53f0\u73af\u5883 / Runtime:"), gbc);
         JPanel deployBtnPanel = new JPanel(new FlowLayout(0, 0, 0));
         deployBtnPanel.setOpaque(false);
         this.deployApiBtn = new ModernUI.ActionButton("\u4e00\u952e\u90e8\u7f72");
         this.deployApiBtn.addActionListener(e -> {
-            int choice = JOptionPane.showConfirmDialog(this, I18n.tr("将 BepInEx 运行文件部署到已确认的游戏目录。首次安装需要退出游戏；请按游戏与平台规则使用第三方插件。继续部署？"), I18n.tr("环境部署"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            int choice = JOptionPane.showConfirmDialog(this, I18n.tr("将后台运行环境和插件写入游戏目录。请先退出游戏；已存在的文件会先备份。继续部署？"), I18n.tr("环境部署"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
             if (choice != 0) {
                 return;
             }
@@ -1622,7 +1622,7 @@ extends JFrame {
                     boolean success = DeployManager.checkAndDeploy();
                     SwingUtilities.invokeLater(() -> {
                         if (!success) {
-                            JOptionPane.showMessageDialog(this, I18n.tr("\u90e8\u7f72\u5931\u8d25\uff01\n1. \u8bf7\u68c0\u67e5\u6e38\u620f\u662f\u5426\u5df2\u7ecf\u542f\u52a8\u3002\n2. \u8bf7\u786e\u8ba4 BepInExPackage \u6587\u4ef6\u5939\u4e0e\u672c\u8f6f\u4ef6\u5728\u540c\u4e00\u76ee\u5f55\u4e0b\u3002"), I18n.tr("\u9519\u8bef"), 0);
+                            JOptionPane.showMessageDialog(this, I18n.tr("\u90e8\u7f72\u5931\u8d25\uff01\u8bf7\u786e\u8ba4\u6e38\u620f\u5df2\u9000\u51fa\uff0c\u4e14 BepInExPackage \u4e0e\u672c\u8f6f\u4ef6\u5728\u540c\u4e00\u76ee\u5f55\u3002"), I18n.tr("\u9519\u8bef"), 0);
                         }
                     });
                 }

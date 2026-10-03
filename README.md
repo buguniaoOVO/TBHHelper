@@ -7,7 +7,7 @@
 
 TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自动合成、瘟疫之地与腐蚀设置，以及带道具图片和市场参考价的仓库页面。
 
-**[下载 v1.3.44](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.44)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.45](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.45)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![运行概览](docs/images/01-overview.png)
 
@@ -68,15 +68,15 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 ## 下载与启动
 
-环境：Windows 10/11 64 位、Steam 版 TaskBarHero。
+环境：Windows 10/11 64 位、Steam 版 TaskBarHero。下载包自带 Java 17 运行库，不需要另外安装。
 
-1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.44) 下载 Windows x64 ZIP，解压完整文件夹。
-2. 首次安装或更新插件前，退出游戏和旧助手。
-3. 双击 `启动TBH助手.cmd`。启动器会检测 Steam 游戏目录；未找到时可手动选择 `TaskBarHero.exe` 所在文件夹。
-4. 启动器准备插件与缺失的 BepInEx 环境。随后从 Steam 启动游戏，等待助手显示已连接。
+1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.45) 下载 Windows x64 ZIP，完整解压。
+2. 双击文件夹里的 `TBH助手.exe` 直接打开助手。
+3. 先退出游戏，在“设置/setting”页点“一键部署”。助手会定位游戏目录，写入后台环境与插件，被覆盖的文件先备份。
+4. 从 Steam 启动游戏，等待助手显示“游戏已连接”。
 5. 检查各项规则，再点“一键开启”。开箱与仓库整理会随总任务运行；合成、腐蚀与自动前往地图按各自开关执行。
 
-公开包自带 Java 17 与 BepInEx IL2CPP 运行环境。首次游戏启动需要生成接口程序集，请给它留出初始化时间。新包的合成、腐蚀和自动前往地图默认关闭，包含仓库默认关闭，铭文材料排除默认开启。
+首次游戏启动需要生成接口程序集，请给它留出初始化时间。新包的合成、腐蚀和自动前往地图默认关闭，包含仓库默认关闭，铭文材料排除默认开启。
 
 ## 当前范围
 

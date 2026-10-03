@@ -217,7 +217,7 @@ public class Config {
 
     public static class Global {
         public static final String APP_TITLE = "TBH助手";
-        public static final String APP_VERSION = "v1.3.44";
+        public static final String APP_VERSION = "v1.3.45";
         public static long CHECK_INTERVAL = 500L;
         public static double MATCH_THRESHOLD = 0.8;
         public static double GAME_UI_SCALE = 1.5;
