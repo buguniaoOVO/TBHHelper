@@ -15,6 +15,8 @@ import com.lulu.api.MonitorStatus;
 import com.lulu.config.Config;
 import com.lulu.core.DeployManager;
 import com.lulu.gui.DesktopSupport;
+import com.lulu.gui.I18n;
+import com.lulu.gui.UiPreferences;
 import com.lulu.gui.ModernUI;
 import com.lulu.warehouse.WarehousePanel;
 import com.lulu.logic.monitor.StatsManager;
@@ -177,6 +179,7 @@ extends JFrame {
                 this.otherRecordRetentionHours, this.otherRecordsPermanent);
         ActivityStore.migrateLegacyChestCounts(StatsManager.totalWhite, StatsManager.totalBlue);
         this.initUI();
+        I18n.install(this);
         this.updateManualCorrosionButtons();
         this.redirectSystemOut();
         this.startHotkeyListener();
@@ -208,6 +211,7 @@ extends JFrame {
         this.sessionBlueLbl = new JLabel("0");
         this.sessionWhiteLbl = new JLabel("0");
         this.consoleArea = new JTextArea();
+        this.consoleArea.putClientProperty(I18n.IGNORE, Boolean.TRUE);
         this.consoleArea.setEditable(false);
         this.consoleArea.setLineWrap(true);
         this.consoleArea.setWrapStyleWord(true);
@@ -419,7 +423,7 @@ extends JFrame {
         system.add(this.createModulePanel("系统设置", this.createSystemSettingsPanel()));
         system.add(Box.createRigidArea(new Dimension(0, 10)));
         system.add(this.createSettingsConfirmPanel());
-        this.addPage("settings", "设置", "系统设置", "后台连接与界面信息", system);
+        this.addPage("settings", "设置/setting", "系统设置", "后台连接与界面信息", system);
         this.addPage("help", "说明", "使用说明", "自动化任务的配置与运行方式", this.createHelpPage());
     }
 
@@ -431,6 +435,7 @@ extends JFrame {
         scroll.getVerticalScrollBar().setUnitIncrement(16);
         this.pageHost.add(scroll, id);
         JButton button = new ModernUI.ActionButton(navText);
+        if ("settings".equals(id)) button.putClientProperty(I18n.IGNORE, Boolean.TRUE);
         button.setIcon(new com.lulu.gui.NavigationIcon(id, (int)Math.round(22 * APP_SCALE)));
         button.setIconTextGap((int)Math.round(12 * APP_SCALE));
         button.setToolTipText(title);
@@ -455,8 +460,8 @@ extends JFrame {
             return;
         }
         this.pageLayout.show(this.pageHost, id);
-        this.pageTitleLabel.setText(title);
-        this.pageSubtitleLabel.setText(subtitle);
+        I18n.setText(this.pageTitleLabel, title);
+        I18n.setText(this.pageSubtitleLabel, subtitle);
         for (Map.Entry<String, JButton> entry : this.navigationButtons.entrySet()) {
             boolean selected = entry.getKey().equals(id);
             JButton button = entry.getValue();
@@ -496,7 +501,7 @@ extends JFrame {
 
     private void confirmSettings() {
         if (this.saveSettings()) {
-            this.footerStatusLabel.setText("设置已保存并应用");
+            I18n.setText(this.footerStatusLabel, "设置已保存并应用");
             String summary = "设置已保存并应用。\n"
                     + "瘟疫之地：" + (Config.Global.AUTO_PLAGUELANDS_ENABLED ? "已启用" : "已关闭")
                     + "；目标等级 " + Config.Global.PLAGUELANDS_TARGET_LEVEL
@@ -506,9 +511,9 @@ extends JFrame {
                     + "记录保留：统计 " + Config.Global.STATS_RETENTION_HOURS
                     + " 小时；其他记录 " + (this.otherRecordsPermanent ? "永久" : this.otherRecordRetentionHours + " 小时")
                     + "；日志 " + Config.Global.LOG_RETENTION_HOURS + " 小时。";
-            JOptionPane.showMessageDialog(this, summary, "设置已更新", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr(summary), I18n.tr("设置已更新"), JOptionPane.INFORMATION_MESSAGE);
         } else {
-            JOptionPane.showMessageDialog(this, "有设置值无效或保存失败，请检查输入后重试。", "设置未保存", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr("有设置值无效或保存失败，请检查输入后重试。"), I18n.tr("设置未保存"), JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -800,7 +805,7 @@ extends JFrame {
                 if (column == itemNameColumn && grade >= 0) {
                     String name = String.valueOf(value == null ? "" : value);
                     String mark = grade >= 8 ? "★ " : grade >= 6 ? "☆ " : "";
-                    label.setText(mark + name);
+                    I18n.setText(label, mark + name);
                 }
                 if (!selected) {
                     label.setBackground(row % 2 == 0 ? SURFACE_BG : SURFACE_ALT);
@@ -866,13 +871,11 @@ extends JFrame {
     }
 
     private void confirmAndClearRecords(String label, String type) {
-        int first = JOptionPane.showConfirmDialog(this, "确定清除“" + label + "”吗？",
-                "清除确认", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        int first = JOptionPane.showConfirmDialog(this, I18n.tr("确定清除“" + label + "”吗？"), I18n.tr("清除确认"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (first != JOptionPane.YES_OPTION) {
             return;
         }
-        int second = JOptionPane.showConfirmDialog(this, "再次确认：清除“" + label + "”后无法恢复。",
-                "二次确认", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+        int second = JOptionPane.showConfirmDialog(this, I18n.tr("再次确认：清除“" + label + "”后无法恢复。"), I18n.tr("二次确认"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (second != JOptionPane.YES_OPTION) {
             return;
         }
@@ -908,13 +911,13 @@ extends JFrame {
                     String.format(java.util.Locale.ROOT, "%.1f%%", chance)});
         }
         if (this.qualitySummaryTotalLabel != null) {
-            this.qualitySummaryTotalLabel.setText("已记录掉落：" + total + " 件");
+            I18n.setText(this.qualitySummaryTotalLabel, "已记录掉落：" + total + " 件");
         }
     }
 
     private void refreshDropEvents(JButton button) {
         button.setEnabled(false);
-        button.setText("刷新中…");
+        I18n.setText(button, "刷新中…");
         Thread refresh = new Thread(() -> {
             String statusMessage;
             boolean connected = false;
@@ -941,13 +944,13 @@ extends JFrame {
             final boolean finalConnected = connected;
             SwingUtilities.invokeLater(() -> {
                 button.setEnabled(true);
-                button.setText(finalConnected ? "已完成" : "重试");
+                I18n.setText(button, finalConnected ? "已完成" : "重试");
                 if (this.statsSourceLabel != null) {
-                    this.statsSourceLabel.setText(finalStatusMessage);
+                    I18n.setText(this.statsSourceLabel, finalStatusMessage);
                     this.statsSourceLabel.setForeground(finalConnected ? CYAN_ACCENT : GOLD_ACCENT);
                 }
                 this.refreshStatisticsTables();
-                Timer resetButton = new Timer(1800, event -> button.setText("刷新"));
+                Timer resetButton = new Timer(1800, event -> I18n.setText(button, "刷新"));
                 resetButton.setRepeats(false);
                 resetButton.start();
             });
@@ -1049,32 +1052,32 @@ extends JFrame {
         } catch (Exception ignored) {
         }
         if (this.connectionLabel != null) {
-            this.connectionLabel.setText(gameOpen ? "● 游戏已连接" : "● 等待游戏");
+            I18n.setText(this.connectionLabel, gameOpen ? "● 游戏已连接" : "● 等待游戏");
             this.connectionLabel.setForeground(gameOpen ? new Color(12, 123, 68) : MUTED_COLOR);
             this.connectionLabel.setBackground(gameOpen ? new Color(235, 248, 241) : SURFACE_ALT);
         }
         if (this.automationStateLabel != null) {
-            this.automationStateLabel.setText(this.isRunning ? "● 自动化运行中" : "● 自动化已停止");
+            I18n.setText(this.automationStateLabel, this.isRunning ? "● 自动化运行中" : "● 自动化已停止");
             this.automationStateLabel.setForeground(this.isRunning ? GOLD_ACCENT : MUTED_COLOR);
             this.automationStateLabel.setBackground(this.isRunning ? new Color(255, 247, 229) : SURFACE_ALT);
         }
         if (this.overviewConnectionValue != null) {
-            this.overviewConnectionValue.setText(gameOpen ? "已连接" : "未连接");
+            I18n.setText(this.overviewConnectionValue, gameOpen ? "已连接" : "未连接");
         }
         if (this.overviewAutomationValue != null) {
-            this.overviewAutomationValue.setText(this.isRunning ? "运行中" : "已停止");
+            I18n.setText(this.overviewAutomationValue, this.isRunning ? "运行中" : "已停止");
         }
         if (this.overviewCorrosionValue != null) {
             int enabled = Config.Synthesis.isCorrosionEnabled ? 1 : 0;
-            this.overviewCorrosionValue.setText("已启用 " + enabled + " 项");
+            I18n.setText(this.overviewCorrosionValue, "已启用 " + enabled + " 项");
         }
         if (this.plaguelandsMonitorValue != null) {
             PlaguelandsTask task = this.activePlaguelandsTask;
-            this.plaguelandsMonitorValue.setText(this.isRunning && Config.Global.AUTO_PLAGUELANDS_ENABLED && task != null
+            I18n.setText(this.plaguelandsMonitorValue, this.isRunning && Config.Global.AUTO_PLAGUELANDS_ENABLED && task != null
                     ? task.getLastResultMessage() : this.detectedPlaguelandsStatus);
         }
         if (this.footerStatusLabel != null && !this.manualCorrosionRunning) {
-            this.footerStatusLabel.setText(this.isRunning ? "自动任务运行中 · F8 可停止" : this.lastCorrosionStatus);
+            I18n.setText(this.footerStatusLabel, this.isRunning ? "自动任务运行中 · F8 可停止" : this.lastCorrosionStatus);
         }
     }
 
@@ -1100,19 +1103,19 @@ extends JFrame {
                         }
                         SwingUtilities.invokeLater(() -> {
                             if (this.corrosionMonitorValue != null) {
-                                this.corrosionMonitorValue.setText(display);
+                                I18n.setText(this.corrosionMonitorValue, display);
                             }
                             if (this.warehouseCapacityLabel != null) {
-                                this.warehouseCapacityLabel.setText(capacity);
+                                I18n.setText(this.warehouseCapacityLabel, capacity);
                             }
                         });
                     } else {
                         SwingUtilities.invokeLater(() -> {
                             if (this.corrosionMonitorValue != null) {
-                                this.corrosionMonitorValue.setText("监控等待游戏连接");
+                                I18n.setText(this.corrosionMonitorValue, "监控等待游戏连接");
                             }
                             if (this.warehouseCapacityLabel != null) {
-                                this.warehouseCapacityLabel.setText("等待游戏连接");
+                                I18n.setText(this.warehouseCapacityLabel, "等待游戏连接");
                             }
                         });
                     }
@@ -1135,18 +1138,16 @@ extends JFrame {
 
     private void runManualCorrosion() {
         if (this.isRunning || this.manualCorrosionRunning) {
-            JOptionPane.showMessageDialog(this, "请先停止自动任务，再执行单次腐蚀。", "任务正在运行", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr("请先停止自动任务，再执行单次腐蚀。"), I18n.tr("任务正在运行"), JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         if (!this.saveSettings()) {
-            JOptionPane.showMessageDialog(this, "保存设置失败，单次腐蚀未启动。", "设置错误", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr("保存设置失败，单次腐蚀未启动。"), I18n.tr("设置错误"), JOptionPane.ERROR_MESSAGE);
             return;
         }
         String pluginStatus = DllApiClient.getGameStatus();
         if (pluginStatus == null || !pluginStatus.startsWith("SUCCESS|")) {
-            JOptionPane.showMessageDialog(this,
-                    "游戏插件 API 未连接。请确认游戏已加载当前插件，并检查 BepInEx 日志中的监听地址与端口冲突。",
-                    "游戏 API 未连接", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr("游戏插件 API 未连接。请确认游戏已加载当前插件，并检查 BepInEx 日志中的监听地址与端口冲突。"), I18n.tr("游戏 API 未连接"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         this.manualCorrosionRunning = true;
@@ -1502,7 +1503,7 @@ extends JFrame {
         this.appScaleBox.addActionListener(e -> {
             if (this.isRunning) {
                 SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(this, "\u6302\u673a\u8fd0\u884c\u671f\u95f4\u65e0\u6cd5\u4fee\u6539\u754c\u9762\u5927\u5c0f\uff0c\u8bf7\u5148\u505c\u6b62\uff01", "\u64cd\u4f5c\u88ab\u62d2\u7edd", 2);
+                    JOptionPane.showMessageDialog(this, I18n.tr("\u6302\u673a\u8fd0\u884c\u671f\u95f4\u65e0\u6cd5\u4fee\u6539\u754c\u9762\u5927\u5c0f\uff0c\u8bf7\u5148\u505c\u6b62\uff01"), I18n.tr("\u64cd\u4f5c\u88ab\u62d2\u7edd"), 2);
                     this.appScaleBox.setSelectedItem(String.valueOf(APP_SCALE));
                 });
                 return;
@@ -1511,7 +1512,7 @@ extends JFrame {
             double newScale = Double.parseDouble(selected);
             if (newScale != APP_SCALE) {
                 SwingUtilities.invokeLater(() -> {
-                    int choice = JOptionPane.showConfirmDialog(this, "\u786e\u5b9a\u4fee\u6539\u7f29\u653e\u6bd4\u4f8b\u4e3a " + selected + " \u5417\uff1f\n(\u7acb\u523b\u4fdd\u5b58\u5e76\u5237\u65b0)", "\u4fee\u6539\u754c\u9762\u5927\u5c0f", 0, 3);
+                    int choice = JOptionPane.showConfirmDialog(this, I18n.tr("\u786e\u5b9a\u4fee\u6539\u7f29\u653e\u6bd4\u4f8b\u4e3a " + selected + " \u5417\uff1f\n(\u7acb\u523b\u4fdd\u5b58\u5e76\u5237\u65b0)"), I18n.tr("\u4fee\u6539\u754c\u9762\u5927\u5c0f"), 0, 3);
                     if (choice == 0) {
                         APP_SCALE = newScale;
                         this.saveSettings();
@@ -1539,7 +1540,7 @@ extends JFrame {
                 String gamePath = Config.UserData.GAME_PATH;
                 boolean isDeployed = gamePath != null && !gamePath.isEmpty() && new File(gamePath, "winhttp.dll").exists();
                 if (!isDeployed) {
-                    JOptionPane.showMessageDialog(this, "\u5c1a\u672a\u68c0\u6d4b\u5230\u540e\u53f0\u5e95\u5c42\u73af\u5883\uff0c\u65e0\u6cd5\u542f\u7528\u540e\u53f0\u6a21\u5f0f\uff01\n\n\ud83d\udc49 \u8bf7\u5148\u786e\u4fdd\u6e38\u620f\u6b63\u5728\u8fd0\u884c\uff0c\u7136\u540e\u70b9\u51fb\u3010\u4e00\u952e\u90e8\u7f72\u3011\u3002", "\u73af\u5883\u7f3a\u5931", 2);
+                    JOptionPane.showMessageDialog(this, I18n.tr("\u5c1a\u672a\u68c0\u6d4b\u5230\u540e\u53f0\u5e95\u5c42\u73af\u5883\uff0c\u65e0\u6cd5\u542f\u7528\u540e\u53f0\u6a21\u5f0f\uff01\n\n\ud83d\udc49 \u8bf7\u5148\u786e\u4fdd\u6e38\u620f\u6b63\u5728\u8fd0\u884c\uff0c\u7136\u540e\u70b9\u51fb\u3010\u4e00\u952e\u90e8\u7f72\u3011\u3002"), I18n.tr("\u73af\u5883\u7f3a\u5931"), 2);
                     this.useApiCheckBox.setSelected(false);
                     return;
                 }
@@ -1558,6 +1559,50 @@ extends JFrame {
         p.add((Component)this.useApiCheckBox, gbc);
         // 保存流程使用这些控件的当前值，界面显示引擎和背景信息。
         p.removeAll();
+        gbc.gridy = 0;
+        gbc.gridx = 0;
+        gbc.weightx = 0;
+        p.add(new JLabel("语言 / Language"), gbc);
+        JComboBox<String> language = new JComboBox<String>(new String[]{"简体中文 / Chinese", "English / 英语"});
+        language.putClientProperty(I18n.IGNORE, Boolean.TRUE);
+        language.setSelectedIndex("en".equals(UiPreferences.language()) ? 1 : 0);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        p.add(language, gbc);
+        language.addActionListener(event -> {
+            String selected = language.getSelectedIndex() == 1 ? "en" : "zh";
+            if (selected.equals(UiPreferences.language())) return;
+            try { UiPreferences.setLanguage(selected); }
+            catch (java.io.IOException ex) {
+                language.setSelectedIndex("en".equals(UiPreferences.language()) ? 1 : 0);
+                JOptionPane.showMessageDialog(this, I18n.tr("保存失败 / Save failed: " + ex.getMessage()));
+            }
+        });
+        gbc.gridy = 1;
+        gbc.gridx = 0;
+        gbc.weightx = 0;
+        p.add(new JLabel("关闭按钮 / Close button"), gbc);
+        JComboBox<String> close = new JComboBox<String>(new String[]{"缩小至托盘 / Minimize to tray", "直接退出 / Exit immediately", "每次询问 / Ask every time"});
+        close.putClientProperty(I18n.IGNORE, Boolean.TRUE);
+        String[] closeValues = {"tray", "exit", "ask"};
+        close.setSelectedIndex("exit".equals(UiPreferences.closeAction()) ? 1 : "ask".equals(UiPreferences.closeAction()) ? 2 : 0);
+        gbc.gridx = 1;
+        gbc.weightx = 1;
+        p.add(close, gbc);
+        close.addActionListener(event -> {
+            String selected = closeValues[close.getSelectedIndex()];
+            if (selected.equals(UiPreferences.closeAction())) return;
+            try { UiPreferences.setCloseAction(selected); }
+            catch (java.io.IOException ex) {
+                close.setSelectedIndex("exit".equals(UiPreferences.closeAction()) ? 1 : "ask".equals(UiPreferences.closeAction()) ? 2 : 0);
+                JOptionPane.showMessageDialog(this, I18n.tr("保存失败 / Save failed: " + ex.getMessage()));
+            }
+        });
+        gbc.gridy = 2;
+        gbc.gridx = 0;
+        gbc.gridwidth = 2;
+        p.add(new JLabel("选择后立即保存，重启后继续使用。"), gbc);
+        gbc.gridwidth = 1;
         gbc.gridx = 0;
         gbc.gridy = 4;
         gbc.weightx = 0.0;
@@ -1566,18 +1611,18 @@ extends JFrame {
         deployBtnPanel.setOpaque(false);
         this.deployApiBtn = new ModernUI.ActionButton("\u4e00\u952e\u90e8\u7f72");
         this.deployApiBtn.addActionListener(e -> {
-            int choice = JOptionPane.showConfirmDialog(this, "将 BepInEx 运行文件部署到已确认的游戏目录。首次安装需要退出游戏；请按游戏与平台规则使用第三方插件。继续部署？", "环境部署", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            int choice = JOptionPane.showConfirmDialog(this, I18n.tr("将 BepInEx 运行文件部署到已确认的游戏目录。首次安装需要退出游戏；请按游戏与平台规则使用第三方插件。继续部署？"), I18n.tr("环境部署"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
             if (choice != 0) {
                 return;
             }
             this.deployApiBtn.setEnabled(false);
-            this.deployApiBtn.setText("\u6b63\u5728\u90e8\u7f72...");
+            I18n.setText(this.deployApiBtn, "\u6b63\u5728\u90e8\u7f72...");
             new Thread(() -> {
                 try {
                     boolean success = DeployManager.checkAndDeploy();
                     SwingUtilities.invokeLater(() -> {
                         if (!success) {
-                            JOptionPane.showMessageDialog(this, "\u90e8\u7f72\u5931\u8d25\uff01\n1. \u8bf7\u68c0\u67e5\u6e38\u620f\u662f\u5426\u5df2\u7ecf\u542f\u52a8\u3002\n2. \u8bf7\u786e\u8ba4 BepInExPackage \u6587\u4ef6\u5939\u4e0e\u672c\u8f6f\u4ef6\u5728\u540c\u4e00\u76ee\u5f55\u4e0b\u3002", "\u9519\u8bef", 0);
+                            JOptionPane.showMessageDialog(this, I18n.tr("\u90e8\u7f72\u5931\u8d25\uff01\n1. \u8bf7\u68c0\u67e5\u6e38\u620f\u662f\u5426\u5df2\u7ecf\u542f\u52a8\u3002\n2. \u8bf7\u786e\u8ba4 BepInExPackage \u6587\u4ef6\u5939\u4e0e\u672c\u8f6f\u4ef6\u5728\u540c\u4e00\u76ee\u5f55\u4e0b\u3002"), I18n.tr("\u9519\u8bef"), 0);
                         }
                     });
                 }
@@ -1586,22 +1631,22 @@ extends JFrame {
                 finally {
                     SwingUtilities.invokeLater(() -> {
                         this.deployApiBtn.setEnabled(true);
-                        this.deployApiBtn.setText("\u4e00\u952e\u90e8\u7f72");
+                        I18n.setText(this.deployApiBtn, "\u4e00\u952e\u90e8\u7f72");
                     });
                 }
             }).start();
         });
         this.uninstallApiBtn = new ModernUI.ActionButton("停用本插件");
         this.uninstallApiBtn.addActionListener(e -> {
-            int choice = JOptionPane.showConfirmDialog(this, "退出游戏后，将本插件移到备份目录。共享 BepInEx 环境和其他插件保留。继续停用？", "停用插件", JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            int choice = JOptionPane.showConfirmDialog(this, I18n.tr("退出游戏后，将本插件移到备份目录。共享 BepInEx 环境和其他插件保留。继续停用？"), I18n.tr("停用插件"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
             if (choice == 0) {
                 this.uninstallApiBtn.setEnabled(false);
-                this.uninstallApiBtn.setText("正在停用...");
+                I18n.setText(this.uninstallApiBtn, "正在停用...");
                 new Thread(() -> {
                     DeployManager.uninstall();
                     SwingUtilities.invokeLater(() -> {
                         this.uninstallApiBtn.setEnabled(true);
-                        this.uninstallApiBtn.setText("停用本插件");
+                        I18n.setText(this.uninstallApiBtn, "停用本插件");
                     });
                 }).start();
             }
@@ -1624,10 +1669,10 @@ extends JFrame {
 
     private void startStatsRefreshTimer() {
         new Timer(1000, e -> {
-            this.totalBlueLbl.setText(String.valueOf(StatsManager.totalBlue));
-            this.totalWhiteLbl.setText(String.valueOf(StatsManager.totalWhite));
-            this.sessionBlueLbl.setText(String.valueOf(StatsManager.sessionBlue));
-            this.sessionWhiteLbl.setText(String.valueOf(StatsManager.sessionWhite));
+            I18n.setText(this.totalBlueLbl, String.valueOf(StatsManager.totalBlue));
+            I18n.setText(this.totalWhiteLbl, String.valueOf(StatsManager.totalWhite));
+            I18n.setText(this.sessionBlueLbl, String.valueOf(StatsManager.sessionBlue));
+            I18n.setText(this.sessionWhiteLbl, String.valueOf(StatsManager.sessionWhite));
             this.updateRuntimeStatus();
         }).start();
     }
@@ -1659,7 +1704,7 @@ extends JFrame {
                     String finalSourceStatus = sourceStatus;
                     SwingUtilities.invokeLater(() -> {
                         if (this.statsSourceLabel != null) {
-                            this.statsSourceLabel.setText(finalSourceStatus);
+                            I18n.setText(this.statsSourceLabel, finalSourceStatus);
                             this.statsSourceLabel.setForeground(pluginReady ? CYAN_ACCENT : GOLD_ACCENT);
                         }
                         this.refreshStatisticsTables();
@@ -1734,13 +1779,13 @@ extends JFrame {
                     || materialCd < 1 || materialCd > 1440 || matchThreshold < 0.5 || matchThreshold > 0.99) {
                 return false;
             }
-            this.corrosionCdField.setText(String.valueOf(corrosionInterval));
-            this.blueCdField.setText(String.valueOf(blueCd));
-            this.whiteCdField.setText(String.valueOf(whiteCd));
-            this.storeCdField.setText(String.valueOf(storeCd));
-            this.synthCdField.setText(String.valueOf(equipCd));
-            this.materialSynthCdField.setText(String.valueOf(materialCd));
-            this.thresholdField.setText(String.valueOf(matchThreshold));
+            I18n.setText(this.corrosionCdField, String.valueOf(corrosionInterval));
+            I18n.setText(this.blueCdField, String.valueOf(blueCd));
+            I18n.setText(this.whiteCdField, String.valueOf(whiteCd));
+            I18n.setText(this.storeCdField, String.valueOf(storeCd));
+            I18n.setText(this.synthCdField, String.valueOf(equipCd));
+            I18n.setText(this.materialSynthCdField, String.valueOf(materialCd));
+            I18n.setText(this.thresholdField, String.valueOf(matchThreshold));
             prop.remove("app_ui_scale");
             prop.remove("enable_auto_route");
             prop.remove("hero_level");
@@ -1820,7 +1865,7 @@ extends JFrame {
 
     private void startBot() throws InterruptedException {
         if (this.manualCorrosionRunning) {
-            JOptionPane.showMessageDialog(this, "请等待单次腐蚀结束后再启动自动任务。", "任务正在运行", JOptionPane.INFORMATION_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr("请等待单次腐蚀结束后再启动自动任务。"), I18n.tr("任务正在运行"), JOptionPane.INFORMATION_MESSAGE);
             return;
         }
         if (!this.saveSettings()) {
@@ -1828,14 +1873,12 @@ extends JFrame {
         }
         WinDef.HWND hwnd = User32.INSTANCE.FindWindow(null, "TaskBarHero");
         if (hwnd == null) {
-            JOptionPane.showMessageDialog(this, "\u672a\u68c0\u6d4b\u5230\u6e38\u620f\u8fdb\u7a0b\uff0c\u8bf7\u5148\u6253\u5f00\u5ba2\u6237\u7aef\uff01", "\u542f\u52a8\u5931\u8d25", 0);
+            JOptionPane.showMessageDialog(this, I18n.tr("\u672a\u68c0\u6d4b\u5230\u6e38\u620f\u8fdb\u7a0b\uff0c\u8bf7\u5148\u6253\u5f00\u5ba2\u6237\u7aef\uff01"), I18n.tr("\u542f\u52a8\u5931\u8d25"), 0);
             return;
         }
         String pluginStatus = DllApiClient.getGameStatus();
         if (pluginStatus == null || !pluginStatus.startsWith("SUCCESS|") || !DllApiClient.configureOperationPacing()) {
-            JOptionPane.showMessageDialog(this,
-                    "当前游戏仍在使用旧版插件。请退出游戏和助手，再运行 Start-TBH-Helper.cmd 更新插件。",
-                    "插件待更新", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr("当前游戏仍在使用旧版插件。请退出游戏和助手，再运行 Start-TBH-Helper.cmd 更新插件。"), I18n.tr("插件待更新"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         this.startBtn.setEnabled(false);
@@ -1860,7 +1903,7 @@ extends JFrame {
                 System.out.println(">>> [操作保护] 已启用游戏接口与统一操作间隔。");
                 while (this.isRunning && !Thread.currentThread().isInterrupted()) {
                     if (User32.INSTANCE.FindWindow(null, "TaskBarHero") == null) {
-                        JOptionPane.showMessageDialog(null, "\u6e38\u620f\u610f\u5916\u5173\u95ed\uff0c\u6302\u673a\u5df2\u81ea\u52a8\u7ec8\u6b62\u3002", "\u8b66\u544a", 2);
+                        JOptionPane.showMessageDialog(null, I18n.tr("\u6e38\u620f\u610f\u5916\u5173\u95ed\uff0c\u6302\u673a\u5df2\u81ea\u52a8\u7ec8\u6b62\u3002"), I18n.tr("\u8b66\u544a"), 2);
                         break;
                     }
                     chest.execute();

@@ -7,7 +7,7 @@
 
 TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自动合成、瘟疫之地与腐蚀设置，以及带道具图片和市场参考价的仓库页面。
 
-**[下载 v1.3.43](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.43)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.44](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.44)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![运行概览](docs/images/01-overview.png)
 
@@ -21,6 +21,12 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 | 仓库 | 读取储物箱道具，图片展示、重复合并、搜索筛选、价格排序与参考估值 |
 | 统计 | 普通、稀有、BOSS 三类宝箱；掉落记录、品质数量与比例、出货合并 |
 | 日志 / 设置 | 运行记录、保留时间、连接与运行环境配置 |
+
+### 界面语言与关闭方式
+
+设置页可以选择简体中文或英文界面，选择后立即保存；导航中的“设置/setting”和语言选项标为双语，方便在两种语言下找到。道具名称和游戏原始日志保持游戏自身的语言。
+
+关闭按钮支持三种默认行为：每次询问、直接退出、缩小至托盘。默认缩小至托盘，自动任务继续运行，点击托盘图标恢复窗口。
 
 ### 后台动作与操作节奏
 
@@ -64,7 +70,7 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 环境：Windows 10/11 64 位、Steam 版 TaskBarHero。
 
-1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.43) 下载 Windows x64 ZIP，解压完整文件夹。
+1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.44) 下载 Windows x64 ZIP，解压完整文件夹。
 2. 首次安装或更新插件前，退出游戏和旧助手。
 3. 双击 `启动TBH助手.cmd`。启动器会检测 Steam 游戏目录；未找到时可手动选择 `TaskBarHero.exe` 所在文件夹。
 4. 启动器准备插件与缺失的 BepInEx 环境。随后从 Steam 启动游戏，等待助手显示已连接。

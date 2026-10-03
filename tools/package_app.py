@@ -6,10 +6,10 @@ args.add_argument('--base', required=True)
 options = args.parse_args()
 root = Path(__file__).resolve().parent.parent
 base = Path(options.base).resolve()
-target = root / 'dist/TBH-Helper-v1.3.43.jar'
+target = root / 'dist/TBH-Helper-v1.3.44.jar'
 target.parent.mkdir(exist_ok=True)
 patches = {p.relative_to(root / 'build/classes').as_posix(): p for p in (root / 'build/classes').rglob('*.class')}
-for group in ('imgs', 'warehouse'):
+for group in ('imgs', 'warehouse', 'i18n'):
     for path in (root / 'resources' / group).rglob('*'):
         if path.is_file(): patches[group + '/' + path.relative_to(root / 'resources' / group).as_posix()] = path
 

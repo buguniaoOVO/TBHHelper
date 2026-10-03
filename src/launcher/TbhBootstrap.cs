@@ -15,8 +15,8 @@ using System.Text.RegularExpressions;
 [assembly: AssemblyDescription("TBH助手")]
 [assembly: AssemblyProduct("TBH助手")]
 [assembly: AssemblyCompany("Awan")]
-[assembly: AssemblyVersion("1.3.43.0")]
-[assembly: AssemblyFileVersion("1.3.43.0")]
+[assembly: AssemblyVersion("1.3.44.0")]
+[assembly: AssemblyFileVersion("1.3.44.0")]
 
 internal static class TbhBootstrap
 {
@@ -226,7 +226,7 @@ internal static class TbhBootstrap
             if (args.Length == 0)
             {
                 string app = Path.GetFileName(executable).StartsWith("TBH-Helper-v", StringComparison.OrdinalIgnoreCase)
-                    ? executable : Path.Combine(root, "TBH-Helper-v1.3.43.jar");
+                    ? executable : Path.Combine(root, "TBH-Helper-v1.3.44.jar");
                 if (!File.Exists(app)) throw new FileNotFoundException("助手程序文件缺失。", app);
                 command.Add("-Dfile.encoding=UTF-8");
                 command.Add("-jar");

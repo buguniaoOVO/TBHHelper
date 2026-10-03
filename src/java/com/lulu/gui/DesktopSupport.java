@@ -89,7 +89,7 @@ public final class DesktopSupport {
         window.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent event) {
-                showCloseDialog();
+                handleClose();
             }
 
             @Override
@@ -99,14 +99,21 @@ public final class DesktopSupport {
         });
     }
 
+    private void handleClose() {
+        String action = UiPreferences.closeAction();
+        if ("exit".equals(action)) exit.run();
+        else if ("tray".equals(action)) minimizeToTray();
+        else showCloseDialog();
+    }
+
     public static JPanel closeDialogContent(boolean running) {
         JPanel content = new JPanel(new BorderLayout(0, 10));
         content.setOpaque(false);
         content.setBorder(BorderFactory.createEmptyBorder(4, 2, 8, 14));
-        JLabel title = new JLabel("选择助手的关闭方式");
+        JLabel title = new JLabel(I18n.tr("选择助手的关闭方式"));
         title.setForeground(ModernUI.TEXT);
-        JLabel detail = new JLabel(running ? "最小化后自动任务继续运行；退出助手会停止任务。"
-                : "最小化后可从右下角托盘打开助手。");
+        JLabel detail = new JLabel(I18n.tr(running ? "最小化后自动任务继续运行；退出助手会停止任务。"
+                : "最小化后可从右下角托盘打开助手。"));
         detail.setForeground(ModernUI.MUTED);
         content.add(title, BorderLayout.NORTH);
         content.add(detail, BorderLayout.CENTER);
@@ -127,8 +134,8 @@ public final class DesktopSupport {
                 }
             }
             int choice = JOptionPane.showOptionDialog(window, closeDialogContent(running.getAsBoolean()),
-                    "关闭 TBH助手", JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, icon,
-                    new Object[]{"最小化到托盘", "退出助手", "取消"}, "最小化到托盘");
+                    I18n.tr("关闭 TBH助手"), JOptionPane.DEFAULT_OPTION, JOptionPane.PLAIN_MESSAGE, icon,
+                    new Object[]{I18n.tr("最小化到托盘"), I18n.tr("退出助手"), I18n.tr("取消")}, I18n.tr("最小化到托盘"));
             if (choice == 0) {
                 minimizeToTray();
             } else if (choice == 1) {
@@ -142,8 +149,7 @@ public final class DesktopSupport {
     private void minimizeToTray() {
         if (!SystemTray.isSupported() || icons.isEmpty()) {
             window.setExtendedState(window.getExtendedState() | JFrame.ICONIFIED);
-            JOptionPane.showMessageDialog(window, "当前系统托盘不可用，助手已最小化到任务栏。",
-                    "最小化助手", JOptionPane.INFORMATION_MESSAGE);
+            System.out.println(I18n.tr("当前系统托盘不可用，助手已最小化到任务栏。"));
             return;
         }
         try {
@@ -158,14 +164,14 @@ public final class DesktopSupport {
                     }
                 }
                 PopupMenu menu = new PopupMenu();
-                MenuItem restore = new MenuItem("打开 TBH助手");
+                MenuItem restore = new MenuItem(I18n.tr("打开 TBH助手"));
                 restore.addActionListener(e -> SwingUtilities.invokeLater(this::restoreWindow));
-                MenuItem quit = new MenuItem("退出助手");
+                MenuItem quit = new MenuItem(I18n.tr("退出助手"));
                 quit.addActionListener(e -> SwingUtilities.invokeLater(exit));
                 menu.add(restore);
                 menu.addSeparator();
                 menu.add(quit);
-                trayIcon = new TrayIcon(image, "TBH助手 · 点击打开", menu);
+                trayIcon = new TrayIcon(image, I18n.tr("TBH助手 · 点击打开"), menu);
                 trayIcon.setImageAutoSize(true);
                 trayIcon.addActionListener(e -> SwingUtilities.invokeLater(this::restoreWindow));
                 trayIcon.addMouseListener(new java.awt.event.MouseAdapter() {
@@ -183,8 +189,8 @@ public final class DesktopSupport {
         } catch (Exception ex) {
             removeTrayIcon();
             window.setVisible(true);
-            JOptionPane.showMessageDialog(window, "托盘图标创建失败：" + ex.getMessage(),
-                    "最小化失败", JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(window, I18n.tr("托盘图标创建失败：") + ex.getMessage(),
+                    I18n.tr("最小化失败"), JOptionPane.WARNING_MESSAGE);
         }
     }
 

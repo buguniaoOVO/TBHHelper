@@ -2,6 +2,7 @@ package com.lulu.warehouse;
 
 import com.lulu.api.DllApiClient;
 import com.lulu.gui.ModernUI;
+import com.lulu.gui.I18n;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Dimension;
@@ -142,20 +143,20 @@ public final class WarehousePanel extends JPanel {
         if (!busy.compareAndSet(false, true)) return;
         refresh.setEnabled(false);
         refreshPrices.setEnabled(false);
-        status.setText("正在读取储物箱道具…");
+        I18n.setText(status, "正在读取储物箱道具…");
         Thread thread = new Thread(() -> {
             try {
                 String response = DllApiClient.getWarehouseItems();
                 if (response == null) throw new IllegalStateException("仓库读取超时");
                 WarehouseModel snapshot = WarehouseModel.parse(response);
-                SwingUtilities.invokeLater(() -> { model = snapshot; render(); status.setText("道具已读取，正在更新市场报价…"); });
+                SwingUtilities.invokeLater(() -> { model = snapshot; render(); I18n.setText(status, "道具已读取，正在更新市场报价…"); });
                 prices.refresh(forcePrices);
                 SwingUtilities.invokeLater(() -> {
                     render();
-                    status.setText(prices.error.isEmpty() ? "储物箱每分钟更新一次；市场报价缓存30分钟。" : prices.error + "；显示可用的缓存报价。");
+                    I18n.setText(status, prices.error.isEmpty() ? "储物箱每分钟更新一次；市场报价缓存30分钟。" : prices.error + "；显示可用的缓存报价。");
                 });
             } catch (Exception ex) {
-                SwingUtilities.invokeLater(() -> status.setText("读取失败：" + ex.getMessage()));
+                SwingUtilities.invokeLater(() -> I18n.setText(status, "读取失败：" + ex.getMessage()));
             } finally {
                 busy.set(false);
                 SwingUtilities.invokeLater(() -> { refresh.setEnabled(true); refreshPrices.setEnabled(true); });
@@ -167,17 +168,17 @@ public final class WarehousePanel extends JPanel {
 
     private void render() {
         if (model == null) return;
-        capacity.setText(model.used + " / " + model.capacity + " 格");
-        groups.setText(String.valueOf(model.items.size()));
+        I18n.setText(capacity, model.used + " / " + model.capacity + " 格");
+        I18n.setText(groups, String.valueOf(model.items.size()));
         int priced = 0;
         double total = 0;
         for (WarehouseModel.Item item : model.items) {
             double unit = prices.unitValue(item);
             if (item.quantityKnown && Double.isFinite(unit)) { priced++; total += unit * item.quantity; }
         }
-        value.setText(priced > 0 || (model.used == 0 && model.missing == 0) ? money(total) : "暂无报价");
+        I18n.setText(value, priced > 0 || (model.used == 0 && model.missing == 0) ? money(total) : "暂无报价");
         String fetched = prices.fetchedAt > 0 ? new SimpleDateFormat("MM-dd HH:mm").format(new Date(prices.fetchedAt)) : "尚未读取";
-        coverage.setText("已报价 " + priced + "/" + model.items.size() + " 组 · 人民币折算最低在售参考价 · "
+        I18n.setText(coverage, "已报价 " + priced + "/" + model.items.size() + " 组 · 人民币折算最低在售参考价 · "
                 + (prices.cached ? "缓存 " : "更新 ") + fetched + (model.missing > 0 ? " · " + model.missing + " 格读取未完成" : ""));
         List<WarehouseModel.Item> visible = new ArrayList<WarehouseModel.Item>();
         String query = search.getText().trim().toLowerCase(Locale.ROOT);
@@ -236,7 +237,7 @@ public final class WarehousePanel extends JPanel {
                     + (quote == null ? "暂无报价" : money(prices.unitValue(item)))
                     + (quote == null ? "" : "<br>报价时间 " + escape(quote.updatedAt)) + "</html>");
             getAccessibleContext().setAccessibleName(item.name + "，数量" + quantity);
-            addActionListener(e -> selection.setText(item.name + " · " + quality + " · " + item.pageText + " · 数量 " + quantity
+            addActionListener(e -> I18n.setText(selection, item.name + " · " + quality + " · " + item.pageText + " · 数量 " + quantity
                     + " · Steam参考单价 " + (quote == null ? "暂无报价" : money(prices.unitValue(item)))));
         }
 
@@ -260,7 +261,7 @@ public final class WarehousePanel extends JPanel {
                 g.setColor(ModernUI.MUTED);
                 g.drawString("?",getWidth()/2-4,53);
             }
-            String count = item.quantityKnown ? "×" + item.quantity : item.slots + "格";
+            String count = item.quantityKnown ? "×" + item.quantity : item.slots + (I18n.english() ? " slots" : "格");
             g.setColor(ModernUI.TEXT);
             g.drawString(count,6,83);
             g.setFont(new Font("Microsoft YaHei UI",Font.PLAIN,10));
