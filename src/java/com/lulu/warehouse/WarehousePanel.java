@@ -44,6 +44,7 @@ public final class WarehousePanel extends JPanel {
     private static final String[] GRADES = {"普通", "罕见", "稀有", "传说", "不朽", "至宝", "超凡", "天界", "神圣", "宇宙"};
     private final MarketPriceClient prices = new MarketPriceClient();
     private final AtomicBoolean busy = new AtomicBoolean();
+    private final AtomicBoolean marketBusy = new AtomicBoolean();
     private final Map<String, Image> images = new HashMap<String, Image>();
     private WarehouseModel model;
     private final JLabel value = new JLabel("—");
@@ -111,7 +112,7 @@ public final class WarehousePanel extends JPanel {
         footer.add(status, BorderLayout.SOUTH);
         add(footer, BorderLayout.SOUTH);
         refresh.addActionListener(e -> refresh(false));
-        refreshPrices.addActionListener(e -> refresh(true));
+        refreshPrices.addActionListener(e -> refreshMarketPrices());
         grade.addActionListener(e -> render());
         type.addActionListener(e -> render());
         order.addActionListener(e -> render());
@@ -142,7 +143,6 @@ public final class WarehousePanel extends JPanel {
     public void refresh(boolean forcePrices) {
         if (!busy.compareAndSet(false, true)) return;
         refresh.setEnabled(false);
-        refreshPrices.setEnabled(false);
         I18n.setText(status, "正在读取储物箱道具…");
         Thread thread = new Thread(() -> {
             try {
@@ -159,9 +159,33 @@ public final class WarehousePanel extends JPanel {
                 SwingUtilities.invokeLater(() -> I18n.setText(status, "读取失败：" + ex.getMessage()));
             } finally {
                 busy.set(false);
-                SwingUtilities.invokeLater(() -> { refresh.setEnabled(true); refreshPrices.setEnabled(true); });
+                SwingUtilities.invokeLater(() -> refresh.setEnabled(true));
             }
         }, "tbh-warehouse-catalog");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    private void refreshMarketPrices() {
+        if (!marketBusy.compareAndSet(false, true)) return;
+        refreshPrices.setEnabled(false);
+        if (!busy.get()) I18n.setText(status, "正在更新市场报价…");
+        Thread thread = new Thread(() -> {
+            try {
+                prices.refresh(true);
+                SwingUtilities.invokeLater(() -> {
+                    render();
+                    if (!busy.get()) {
+                        I18n.setText(status, prices.error.isEmpty()
+                                ? "市场报价已更新；报价数据由 TBH Index 提供。"
+                                : prices.error + "；保留最近可用报价。");
+                    }
+                });
+            } finally {
+                marketBusy.set(false);
+                SwingUtilities.invokeLater(() -> refreshPrices.setEnabled(true));
+            }
+        }, "tbh-market-price-refresh");
         thread.setDaemon(true);
         thread.start();
     }

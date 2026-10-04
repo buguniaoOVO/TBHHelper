@@ -1,6 +1,7 @@
 package com.lulu.logic.tasks;
 
 import com.lulu.api.DllApiClient;
+import com.lulu.api.CubeFillStatus;
 import com.lulu.api.MonitorStatus;
 import com.lulu.config.Config;
 import com.lulu.core.AutomationEngine;
@@ -11,6 +12,8 @@ import org.opencv.core.Mat;
 public class CorrosionTask implements BotTask {
     private static final String[] GRADE_NAMES = new String[]{"普通", "罕见", "稀有", "传说", "不朽", "至宝", "超凡", "天界", "神圣", "宇宙"};
     private static long lastCorrosionTime;
+    private static long nextMonitorCheckAt;
+    private static long nextRecoveryPollAt;
     private static long lastWarehouseSettingNoticeTime;
     private static volatile boolean corrosionRecoveryPending;
     private String lastResultMessage = "尚未执行腐蚀。";
@@ -30,15 +33,42 @@ public class CorrosionTask implements BotTask {
         return this.lastResultMessage;
     }
 
+    public boolean isDue() {
+        long now = System.currentTimeMillis();
+        if (now < this.nextExecutionAt()) return false;
+        if (corrosionRecoveryPending) return true;
+        MonitorStatus status = DllApiClient.getMonitorStatus();
+        boolean eligible = status.isReady() && status.corrosionNeeded(Config.Synthesis.CORROSION_POLLUTION_THRESHOLD,
+                Config.Synthesis.CORROSION_WAREHOUSE_THRESHOLD_PERCENT)
+                && (Config.Synthesis.corrosionUseWarehouse
+                    || status.warehousePercent < Config.Synthesis.CORROSION_WAREHOUSE_THRESHOLD_PERCENT);
+        if (!eligible) nextMonitorCheckAt = now + 5000L;
+        return eligible;
+    }
+
+    public boolean isRecoveryPending() { return corrosionRecoveryPending; }
+
+    public long nextExecutionAt() {
+        if (corrosionRecoveryPending) return nextRecoveryPollAt;
+        if (!Config.Synthesis.isCorrosionEnabled) return Long.MAX_VALUE;
+        return Math.max(nextMonitorCheckAt, lastCorrosionTime == 0L ? 0L
+                : lastCorrosionTime + com.lulu.core.CorrosionTiming.clamp(Config.Synthesis.CORROSION_AUTO_INTERVAL_SEC) * 1000L);
+    }
+
     @Override
     public void execute() throws InterruptedException {
         if (corrosionRecoveryPending) {
+            if (System.currentTimeMillis() < nextRecoveryPollAt) return;
+            nextRecoveryPollAt = System.currentTimeMillis() + 1000L;
             this.finishPendingCorrosionIfReady();
             return;
         }
         if (!Config.Synthesis.isCorrosionEnabled) {
             return;
         }
+        long monitorNow = System.currentTimeMillis();
+        if (monitorNow < nextMonitorCheckAt) return;
+        nextMonitorCheckAt = monitorNow + 5000L;
         MonitorStatus status = DllApiClient.getMonitorStatus();
         int pollutionThreshold = Config.Synthesis.CORROSION_POLLUTION_THRESHOLD;
         int warehouseThreshold = Config.Synthesis.CORROSION_WAREHOUSE_THRESHOLD_PERCENT;
@@ -64,7 +94,7 @@ public class CorrosionTask implements BotTask {
             }
             return;
         }
-        int intervalSeconds = Math.max(120, Config.Synthesis.CORROSION_AUTO_INTERVAL_SEC);
+        int intervalSeconds = com.lulu.core.CorrosionTiming.clamp(Config.Synthesis.CORROSION_AUTO_INTERVAL_SEC);
         long currentTime = System.currentTimeMillis();
         if (currentTime - lastCorrosionTime < intervalSeconds * 1000L) {
             return;
@@ -85,8 +115,10 @@ public class CorrosionTask implements BotTask {
         int maxGrade = Math.max(0, Math.min(GRADE_NAMES.length - 1, Config.Synthesis.corrosionMaxGrade));
         String gradeLimit = getGradeName(maxGrade);
         boolean excludeScrolls = Config.Synthesis.corrosionExcludeInscriptionScrolls;
+        boolean excludeOfferingCoins = Config.Synthesis.corrosionExcludeOfferingCoins;
         System.out.println(">>> [混合腐蚀设置] 物品范围=" + (includeWarehouse ? "背包+仓库" : "仅个人背包")
-                + "；最高品质=" + gradeLimit + "；排除铭文卷轴=" + excludeScrolls + "；剔除铭文材料后逐格校验剩余物品，不要求填满9格。");
+                + "；最高品质=" + gradeLimit + "；剔除铭文卷轴=" + excludeScrolls
+                + "；剔除纪念币=" + excludeOfferingCoins + "；其他材料与装备保留，不要求填满9格。");
         if (before != null) {
             System.out.println(">>> [腐蚀前监控] 污染度=" + before.pollution
                     + "，仓库负载=" + String.format(java.util.Locale.ROOT, "%.1f%%", before.warehousePercent) + "。");
@@ -111,7 +143,7 @@ public class CorrosionTask implements BotTask {
                 System.out.println("⚠️ [混合腐蚀] 选择腐蚀操作失败，本轮跳过。");
                 return false;
             }
-            String fillResult = fillEquipmentAndMaterial(includeWarehouse, excludeScrolls);
+            String fillResult = fillEquipmentAndMaterial(includeWarehouse, excludeScrolls, excludeOfferingCoins);
             if (!"SUCCESS".equals(fillResult)) {
                 boolean cleared = DllApiClient.clearSynth();
                 Thread.sleep(1000L);
@@ -126,15 +158,15 @@ public class CorrosionTask implements BotTask {
                 return false;
             }
             Thread.sleep(1000L);
-            if (excludeScrolls) {
-                String purged = DllApiClient.purgeExcludedCorrosionMaterials();
+            if (excludeScrolls || excludeOfferingCoins) {
+                String purged = DllApiClient.purgeExcludedCorrosionMaterials(excludeScrolls, excludeOfferingCoins);
                 if (purged != null && purged.startsWith("CORROSION_EMPTY|")) {
-                    this.lastResultMessage = "剔除铭文材料后没有可腐蚀物品，本轮跳过。";
+                    this.lastResultMessage = "剔除铭文卷轴和纪念币后没有可腐蚀物品，本轮跳过。";
                     DllApiClient.clearSynth();
                     return true;
                 }
                 if (purged == null || !purged.startsWith("CORROSION_READY|"))
-                    throw new IllegalStateException("铭文材料退回尚未完成：" + purged);
+                    throw new IllegalStateException("铭文卷轴或纪念币退回尚未完成：" + purged);
             }
             if (!DllApiClient.waitForInventoryReady(60000L)) {
                 this.lastResultMessage = "库存状态尚未同步，本轮腐蚀取消，已退回物品。";
@@ -142,13 +174,13 @@ public class CorrosionTask implements BotTask {
                 throw new IllegalStateException(this.lastResultMessage);
             }
             closeCubeWhenDone = false;
-            String result = DllApiClient.executeSynthAction(maxGrade, excludeScrolls, "corrosion");
+            String result = DllApiClient.executeSynthAction(maxGrade, excludeScrolls, excludeOfferingCoins, "corrosion");
             for (int retry = 0; "NEEDS_EXCLUSION".equals(result) && retry < 2; retry++) {
-                String purged = DllApiClient.purgeExcludedCorrosionMaterials();
+                String purged = DllApiClient.purgeExcludedCorrosionMaterials(excludeScrolls, excludeOfferingCoins);
                 if (purged != null && purged.startsWith("CORROSION_READY|"))
-                    result = DllApiClient.executeSynthAction(maxGrade, excludeScrolls, "corrosion");
+                    result = DllApiClient.executeSynthAction(maxGrade, excludeScrolls, excludeOfferingCoins, "corrosion");
                 else if (purged != null && purged.startsWith("CORROSION_EMPTY|")) result = "NOT_ENOUGH";
-                else throw new IllegalStateException("铭文材料退回尚未完成，保持魔方等待：" + purged);
+                else throw new IllegalStateException("铭文卷轴或纪念币退回尚未完成，保持魔方等待：" + purged);
             }
             if (result == null || result.startsWith("PENDING|") || "CORROSION_PENDING".equals(result) || "ACTION_PENDING".equals(result)) {
                 closeCubeWhenDone = false;
@@ -185,8 +217,8 @@ public class CorrosionTask implements BotTask {
                 Thread.sleep(1000L);
             } else if (result != null && result.startsWith("EXCLUDED_ITEM")) {
                 closeCubeWhenDone = true;
-                this.lastResultMessage = "未执行腐蚀：发现设定排除的铭文卷轴，已退回物品。";
-                System.out.println("🛑 [混合腐蚀] 排除项安全锁拦截；该卷轴不会被腐蚀。");
+                    this.lastResultMessage = "未执行腐蚀：发现已启用的铭文卷轴或纪念币排除项，已退回物品。";
+                System.out.println("🛑 [混合腐蚀] 排除项安全锁拦截；已退回设定排除物品。");
                 DllApiClient.clearSynth();
                 Thread.sleep(1000L);
             } else if ("NOT_ENOUGH".equals(result)) {
@@ -222,18 +254,33 @@ public class CorrosionTask implements BotTask {
         }
     }
 
-    private String fillEquipmentAndMaterial(boolean includeWarehouse, boolean excludeScrolls) throws InterruptedException {
+    private String fillEquipmentAndMaterial(boolean includeWarehouse, boolean excludeScrolls,
+            boolean excludeOfferingCoins) throws InterruptedException {
         int[] types = new int[]{0, 2};
+        boolean anyItemFilled = false;
         for (int type : types) {
             if (!DllApiClient.selectSynthType(type)) return "TYPE_SELECT_FAILED";
-            String result = DllApiClient.corrosionAutoFillResult(includeWarehouse, excludeScrolls);
-            if (result != null && result.startsWith("CORROSION_READY|")) {
-                System.out.println(">>> [混合腐蚀] 剔除后" + result + "；本批不要求填满9格。");
+            String result = DllApiClient.corrosionAutoFillResult(includeWarehouse, excludeScrolls, excludeOfferingCoins);
+            System.out.println(">>> [腐蚀填充结果] 类别=" + type + "，接口返回=" + result);
+            if (CubeFillStatus.isFillResponse(result)) {
+                int count = getFilledCount(result);
+                if (count < 0) return "INVALID_FILL_RESPONSE|" + result;
+                if (count == 0) continue;
+                anyItemFilled |= count > 0;
+                if (count >= 9) {
+                    System.out.println(">>> [混合腐蚀] 当前类别已填满9格，跳过后续类别。");
+                    return "SUCCESS";
+                }
+                if (type != types[types.length - 1]) {
+                    System.out.println(">>> [混合腐蚀] 当前类别填入" + count + "件，继续从另一类别补填剩余格子。");
+                    continue;
+                }
+                System.out.println(">>> [混合腐蚀] 两个类别已依次补填，共" + count + "件；本批允许少于9件。");
                 return "SUCCESS";
             }
-            if (result == null || !result.startsWith("CORROSION_EMPTY|")) return result;
+            return result;
         }
-        return "NOT_ENOUGH_0";
+        return anyItemFilled ? "SUCCESS" : "NOT_ENOUGH_0";
     }
 
     private static String waitForCorrosionAnimationCompletion() throws InterruptedException {
@@ -274,14 +321,7 @@ public class CorrosionTask implements BotTask {
     }
 
     private static int getFilledCount(String result) {
-        if (result == null || !result.startsWith("NOT_ENOUGH_")) {
-            return -1;
-        }
-        try {
-            return Integer.parseInt(result.substring("NOT_ENOUGH_".length()));
-        } catch (NumberFormatException ignored) {
-            return -1;
-        }
+        return CubeFillStatus.count(result);
     }
 
     private boolean executeOpenCV() throws InterruptedException {

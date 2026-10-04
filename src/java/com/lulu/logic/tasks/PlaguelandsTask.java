@@ -16,6 +16,14 @@ public final class PlaguelandsTask implements BotTask {
         return this.lastResultMessage;
     }
 
+    public boolean isDue() {
+        return Config.Global.AUTO_PLAGUELANDS_ENABLED && System.currentTimeMillis() >= this.nextExecutionAt();
+    }
+
+    public long nextExecutionAt() {
+        return Config.Global.AUTO_PLAGUELANDS_ENABLED ? this.nextCheckAt : Long.MAX_VALUE;
+    }
+
     public static String formatCurrentMap(String response) {
         if (response == null || !response.startsWith("SUCCESS")) {
             return "等待游戏地图数据";

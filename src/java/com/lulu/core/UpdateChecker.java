@@ -69,7 +69,7 @@ public final class UpdateChecker {
             int marker = location.lastIndexOf("/tag/");
             if (marker < 0) throw new IOException("发布页跳转地址无法解析版本。");
             String tag = location.substring(marker + 5).trim();
-            if (tag.isEmpty() || !Character.isDigit(tag.charAt(tag.length() - 1))) throw new IOException("发布页版本号无法解析。");
+            if (!tag.matches("v?[0-9]+(?:\\.[0-9]+){1,3}")) throw new IOException("发布页版本号无法解析。");
             return tag;
         } finally {
             connection.disconnect();
@@ -100,20 +100,63 @@ public final class UpdateChecker {
      * 把暂存目录覆盖到安装目录，然后重新打开助手。
      */
     public static void applyAfterExit(Path root, Path staged) throws IOException {
+        root = root.toRealPath();
+        staged = staged.toRealPath();
+        Path temporaryRoot = Paths.get(System.getProperty("java.io.tmpdir")).toRealPath();
+        Path stagingRoot = staged.getParent();
+        if (root.getParent() == null || !Files.isDirectory(root)
+                || stagingRoot == null || !temporaryRoot.equals(stagingRoot.getParent())
+                || !stagingRoot.getFileName().toString().startsWith("TBHHelper-update-")
+                || !staged.getFileName().toString().equals("app") || root.startsWith(stagingRoot)) {
+            throw new IOException("更新目录校验失败。");
+        }
+        List<Path> newJars;
+        try (java.util.stream.Stream<Path> stream = Files.list(staged)) {
+            newJars = stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().matches("TBH-Helper-v[0-9.]+\\.jar"))
+                    .collect(java.util.stream.Collectors.toList());
+        }
+        if (newJars.size() != 1) throw new IOException("更新包需要包含一个助手 JAR。");
+        Path newJar = newJars.get(0);
+        for (Path required : new Path[]{newJar, staged.resolve("TBH助手.exe"), staged.resolve("TBHPlugin-自动腐蚀版.dll")}) {
+            if (!Files.isRegularFile(required) || Files.size(required) == 0) throw new IOException("更新包缺少文件：" + required.getFileName());
+        }
+        List<Path> obsoleteJars = new ArrayList<Path>();
+        try (java.util.stream.Stream<Path> stream = Files.list(root)) {
+            stream.filter(Files::isRegularFile)
+                    .filter(path -> path.getFileName().toString().matches("TBH-Helper-v[0-9.]+\\.jar"))
+                    .filter(path -> !path.getFileName().equals(newJar.getFileName()))
+                    .forEach(obsoleteJars::add);
+        }
         Path launcher = resolveLauncher(root);
         Path script = root.resolve("TBH-Update.ps1");
         long pid = ProcessHandle.current().pid();
         List<String> lines = new ArrayList<String>();
-        lines.add("$ErrorActionPreference = 'SilentlyContinue'");
+        lines.add("$ErrorActionPreference = 'Stop'");
+        lines.add("$tbhInstallRoot = " + quote(root));
+        lines.add("$tbhUpdateRoot = " + quote(stagingRoot));
+        lines.add("try {");
         lines.add("while (Get-Process -Id " + pid + " -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }");
         lines.add("Start-Sleep -Milliseconds 800");
         lines.add("Get-ChildItem -LiteralPath " + quote(staged) + " | ForEach-Object { "
                 + "Copy-Item -LiteralPath $_.FullName -Destination " + quote(root) + " -Recurse -Force }");
-        lines.add("Get-ChildItem -LiteralPath " + quote(root) + " -Filter 'TBH-Helper-v*.jar' -File | Remove-Item -Force");
-        lines.add("Start-Process -FilePath " + quote(launcher) + " -WorkingDirectory " + quote(root));
+        lines.add("if (-not (Test-Path -LiteralPath " + quote(root.resolve(newJar.getFileName()))
+                + " -PathType Leaf)) { throw 'Updated JAR missing' }");
+        for (Path obsolete : obsoleteJars) {
+            lines.add("if (Test-Path -LiteralPath " + quote(obsolete) + ") {");
+            lines.add("$tbhOldJar = (Resolve-Path -LiteralPath " + quote(obsolete) + ").Path");
+            lines.add("if ((Split-Path -Parent $tbhOldJar) -ne $tbhInstallRoot) { throw 'Unexpected obsolete JAR path' }");
+            lines.add("Remove-Item -LiteralPath $tbhOldJar -Force");
+            lines.add("}");
+        }
+        lines.add("Start-Process -FilePath " + quote(launcher) + " -WorkingDirectory " + quote(root) + " -WindowStyle Hidden");
         lines.add("Start-Sleep -Seconds 3");
-        lines.add("Remove-Item -LiteralPath " + quote(staged) + " -Recurse -Force");
+        lines.add("$tbhResolvedUpdate = (Resolve-Path -LiteralPath $tbhUpdateRoot).Path");
+        lines.add("if ((Split-Path -Parent $tbhResolvedUpdate) -ne " + quote(temporaryRoot)
+                + " -or (Split-Path -Leaf $tbhResolvedUpdate) -notlike 'TBHHelper-update-*') { throw 'Unexpected cleanup path' }");
+        lines.add("Remove-Item -LiteralPath $tbhResolvedUpdate -Recurse -Force");
         lines.add("Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force");
+        lines.add("} catch { $_ | Out-String | Set-Content -LiteralPath " + quote(root.resolve("update-error.log")) + " -Encoding UTF8 }");
         byte[] body = String.join("\r\n", lines).concat("\r\n").getBytes(StandardCharsets.UTF_8);
         byte[] bom = {(byte)0xEF, (byte)0xBB, (byte)0xBF};
         byte[] content = new byte[bom.length + body.length];

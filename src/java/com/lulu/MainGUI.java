@@ -14,12 +14,14 @@ import com.lulu.api.DllApiClient;
 import com.lulu.api.MonitorStatus;
 import com.lulu.config.Config;
 import com.lulu.core.DeployManager;
+import com.lulu.core.CorrosionTiming;
 import com.lulu.gui.DesktopSupport;
 import com.lulu.gui.I18n;
 import com.lulu.gui.UiPreferences;
 import com.lulu.gui.ModernUI;
 import com.lulu.warehouse.WarehousePanel;
 import com.lulu.logic.monitor.StatsManager;
+import com.lulu.logic.monitor.ChestTracker;
 import com.lulu.logic.monitor.ActivityStore;
 import com.lulu.logic.tasks.ChestTask;
 import com.lulu.logic.tasks.CorrosionTask;
@@ -51,9 +53,19 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.net.URL;
 import java.util.LinkedHashMap;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.BooleanSupplier;
+import java.util.function.LongSupplier;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import javax.swing.BorderFactory;
@@ -86,6 +98,18 @@ import nu.pattern.OpenCV;
 
 public class MainGUI
 extends JFrame {
+    private interface AutomationAction { void execute() throws InterruptedException; }
+    private static final class AutomationJob {
+        final String key;
+        final String label;
+        final BooleanSupplier due;
+        final LongSupplier nextAt;
+        final AutomationAction action;
+        long dueAt;
+        AutomationJob(String key, String label, BooleanSupplier due, LongSupplier nextAt, AutomationAction action) {
+            this.key = key; this.label = label; this.due = due; this.nextAt = nextAt; this.action = action;
+        }
+    }
     public static double APP_SCALE = 1.0;
     private static final long GAME_EVENT_POLL_INTERVAL_MS = 3000L;
     private static final Color APP_BG = ModernUI.BACKGROUND;
@@ -107,12 +131,25 @@ extends JFrame {
     private JLabel pageTitleLabel;
     private JLabel pageSubtitleLabel;
     private JLabel connectionLabel;
+    private JLabel initializationLabel;
     private JLabel automationStateLabel;
     private JLabel footerStatusLabel;
     private JLabel overviewConnectionValue;
+    private JLabel overviewConnectionHint;
+    private JLabel apiAddressLabel;
+    private volatile String pluginInitializationStatus = "正在初始化游戏 DLL。";
+    private volatile boolean automaticInitializationEnabled = true;
     private volatile boolean gameWindowDetected;
     private volatile boolean pluginApiConnected;
+    private volatile int automationQueueSize;
+    private volatile long automationNextExecutionAtMillis;
+    private volatile String activeAutomationTask = "";
+    private volatile String queuedAutomationTask = "";
+    private volatile boolean automationQueueWaitActive;
+    private volatile long nextBlueChestAt = Long.MAX_VALUE;
+    private volatile long nextWhiteChestAt = Long.MAX_VALUE;
     private JLabel overviewAutomationValue;
+    private JLabel overviewAutomationHint;
     private JLabel overviewCorrosionValue;
     private JTextField blueCdField;
     private JTextField whiteCdField;
@@ -131,9 +168,11 @@ extends JFrame {
     private JCheckBox corrosionEnabledCheck;
     private JCheckBox corrosionWarehouseCheck;
     private JCheckBox corrosionExcludeInscriptionScrollsCheck;
+    private JCheckBox corrosionExcludeOfferingCoinsCheck;
     private JComboBox<String> corrosionMaxGradeBox;
-    private JTextField corrosionCdField;
+    private JSpinner corrosionCdField;
     private JSpinner operationGapSpinner;
+    private JSpinner clickGapSpinner;
     private JTextField corrosionPollutionThresholdField;
     private JTextField corrosionWarehouseThresholdField;
     private JLabel corrosionMonitorValue;
@@ -149,7 +188,17 @@ extends JFrame {
     private JCheckBox useApiCheckBox;
     private JButton deployApiBtn;
     private JButton uninstallApiBtn;
+    private JTextField gamePathField;
+    private JLabel gamePathStatusLabel;
     private JButton updateCheckBtn;
+    private JButton updateNoticeButton;
+    private JLabel automaticUpdateStatusLabel;
+    private final AtomicBoolean updateCheckRunning = new AtomicBoolean();
+    private final AtomicBoolean updateInstallRunning = new AtomicBoolean();
+    private final Set<String> notifiedUpdateTags = new HashSet<String>();
+    private ScheduledExecutorService automaticUpdateScheduler;
+    private UpdateChecker.Release pendingUpdate;
+    private volatile String automaticUpdateStatus = "启动后及每隔 6 小时检测 GitHub 版本。";
     private JButton releasePageBtn;
     private JLabel totalBlueLbl;
     private JLabel totalWhiteLbl;
@@ -187,13 +236,16 @@ extends JFrame {
         I18n.install(this);
         this.updateManualCorrosionButtons();
         this.redirectSystemOut();
+        this.startPluginInitialization();
         this.startHotkeyListener();
         this.startStatsRefreshTimer();
         this.startCorrosionMonitor();
         this.startGameEventPoller();
+        this.startAutomaticUpdateChecks();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println(">>> [\u7cfb\u7edf] \u76d1\u6d4b\u5230\u7a0b\u5e8f\u5173\u95ed\uff0c\u6b63\u5728\u6e05\u7406\u8d44\u6e90...");
             this.stopBot();
+            if (this.automaticUpdateScheduler != null) this.automaticUpdateScheduler.shutdownNow();
             if (this.desktopSupport != null) {
                 this.desktopSupport.removeTrayIcon();
             }
@@ -277,6 +329,7 @@ extends JFrame {
 
     private void exitApplication() {
         this.stopBot();
+        if (this.automaticUpdateScheduler != null) this.automaticUpdateScheduler.shutdownNow();
         this.desktopSupport.removeTrayIcon();
         this.dispose();
         System.exit(0);
@@ -337,12 +390,27 @@ extends JFrame {
         titles.add(this.pageTitleLabel);
         titles.add(Box.createRigidArea(new Dimension(0, 3)));
         titles.add(this.pageSubtitleLabel);
+        this.updateNoticeButton = new ModernUI.ActionButton("发现新版本 · 点击更新");
+        this.updateNoticeButton.setVisible(false);
+        this.updateNoticeButton.setForeground(GOLD_ACCENT);
+        this.updateNoticeButton.addActionListener(e -> this.offerUpdate(this.pendingUpdate));
+        titles.add(this.updateNoticeButton);
 
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
         this.styleStatusPill(this.connectionLabel);
         this.styleStatusPill(this.automationStateLabel);
-        actions.add(this.connectionLabel);
+        JPanel connectionStatus = new JPanel();
+        connectionStatus.setOpaque(false);
+        connectionStatus.setLayout(new BoxLayout(connectionStatus, BoxLayout.Y_AXIS));
+        this.initializationLabel = new ModernUI.PillLabel();
+        this.initializationLabel.setText("● DLL 初始化/同步中");
+        this.styleStatusPill(this.initializationLabel);
+        this.initializationLabel.setForeground(GOLD_ACCENT);
+        this.initializationLabel.setBackground(new Color(255, 247, 219));
+        connectionStatus.add(this.initializationLabel);
+        connectionStatus.add(this.connectionLabel);
+        actions.add(connectionStatus);
         actions.add(this.automationStateLabel);
         actions.add(this.startBtn);
         actions.add(this.stopBtn);
@@ -381,8 +449,8 @@ extends JFrame {
         metrics.setOpaque(false);
         metrics.setMaximumSize(new Dimension(Integer.MAX_VALUE, (int)(132 * APP_SCALE)));
         metrics.setAlignmentX(Component.LEFT_ALIGNMENT);
-        metrics.add(this.createMetricCard("游戏状态", this.overviewConnectionValue, "检测游戏插件 API", CYAN_ACCENT));
-        metrics.add(this.createMetricCard("自动化", this.overviewAutomationValue, "开始与停止状态", GOLD_ACCENT));
+        metrics.add(this.createMetricCard("游戏状态", this.overviewConnectionValue, "本机接口 " + DllApiClient.getApiAddress(), CYAN_ACCENT));
+        metrics.add(this.createMetricCard("自动化", this.overviewAutomationValue, "显示当前任务、下一项任务和排队状态", GOLD_ACCENT));
         metrics.add(this.createMetricCard("腐蚀任务", this.overviewCorrosionValue, "装备与材料混合腐蚀", PURPLE_ACCENT));
         overview.add(metrics);
         overview.add(Box.createRigidArea(new Dimension(0, 14)));
@@ -532,6 +600,8 @@ extends JFrame {
         value.setForeground(accent);
         value.setFont(scaledFont("Microsoft YaHei UI", Font.BOLD, 25));
         JLabel hint = new JLabel(detail);
+        if (value == this.overviewConnectionValue) this.overviewConnectionHint = hint;
+        if (value == this.overviewAutomationValue) this.overviewAutomationHint = hint;
         hint.setForeground(MUTED_COLOR);
         hint.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 11));
         card.add(heading, BorderLayout.NORTH);
@@ -862,7 +932,8 @@ extends JFrame {
         ActivityStore.prune();
         List<ActivityStore.Entry> oldLogs = ActivityStore.getRecent("log", 500);
         for (int i = oldLogs.size() - 1; i >= 0; i--) {
-            this.consoleArea.append(oldLogs.get(i).field(0) + "\n");
+            ActivityStore.Entry entry = oldLogs.get(i);
+            this.consoleArea.append(formatLogTimestamp(entry.timeMillis) + " " + entry.field(0) + "\n");
         }
         JScrollPane scroll = new JScrollPane(this.consoleArea);
         scroll.setBorder(new LineBorder(BORDER_COLOR, 1, true));
@@ -930,7 +1001,7 @@ extends JFrame {
                 boolean gameOpen = User32.INSTANCE.FindWindow(null, "TaskBarHero") != null;
                 String gameStatus = gameOpen ? DllApiClient.getGameStatus() : null;
                 if (gameStatus == null || !gameStatus.startsWith("SUCCESS|")) {
-                    statusMessage = gameOpen ? "手动刷新失败：游戏插件 API 未连接。" : "手动刷新失败：未检测到 TaskBarHero。";
+                    statusMessage = gameOpen ? "手动刷新失败：本机接口 " + DllApiClient.getApiAddress() + " 未连接。" : "手动刷新失败：未检测到 TaskBarHero。";
                 } else {
                     String scan = DllApiClient.refreshNativeGameLogSnapshot();
                     String syncSummary = this.pollAndIngestGameEvents(gameStatus);
@@ -1025,10 +1096,11 @@ extends JFrame {
                 + "5. 在“合成”页设置合成规则；在“瘟疫之地”页设置地图检测、自动前往和腐蚀选项。\n"
                 + "6. 点击“手动腐蚀一次”可以检查装备与材料的混合流程。\n"
                 + "7. 点击“一键开启”后，地图监控、统计采集和自动任务按设置运行。\n"
-                + "8. 点击“全部关闭”或按 F8 停止任务。关闭窗口时可选择缩小到托盘，自动任务继续运行。\n\n"
+                + "8. 每步点击间隔默认 5 秒；任务完成后按共用间隔排队执行，概览显示下次执行倒计时和排队冲突。日志中的每行也会显示时间。\n"
+                + "9. 点击“全部关闭”或按 F8 停止任务。关闭窗口时可选择缩小到托盘，自动任务继续运行。\n\n"
                 + "版本更新\n\n"
-                + "9. 在“设置/setting”页点“检测更新”，助手会比对 GitHub 最新版本；有新版本时会下载并在助手退出后替换文件、自动重启。\n"
-                + "10. 点“打开发布页”可在浏览器查看完整更新说明和下载包。\n\n"
+                + "10. 在“设置/setting”页点“检测更新”，助手会比对 GitHub 最新版本；有新版本时会下载并在助手退出后替换文件、自动重启。\n"
+                + "11. 点“打开发布页”可在浏览器查看完整更新说明和下载包。\n\n"
                 + "提示：品质上限会拦截超出设置的物品；部署和更新前请先退出游戏。");
         text.setEditable(false);
         text.setLineWrap(true);
@@ -1066,11 +1138,28 @@ extends JFrame {
     private void updateRuntimeStatus() {
         boolean gameOpen = this.gameWindowDetected;
         boolean connected = this.pluginApiConnected;
-        String connectionText = connected ? "● 游戏已连接" : (gameOpen ? "● 插件未连接" : "● 等待游戏");
+        boolean updateNeeded = gameOpen && DllApiClient.isPluginUpdateRequired();
+        boolean initialized = DllApiClient.isInitializationReady();
+        String connectionText = connected ? "● 游戏已连接" : (updateNeeded ? "● 插件需更新" : (gameOpen ? "● 插件未连接" : "● 等待游戏"));
         if (this.connectionLabel != null) {
             I18n.setText(this.connectionLabel, connectionText);
             this.connectionLabel.setForeground(connected ? new Color(12, 123, 68) : (gameOpen ? GOLD_ACCENT : MUTED_COLOR));
             this.connectionLabel.setBackground(connected ? new Color(235, 248, 241) : SURFACE_ALT);
+            this.connectionLabel.setToolTipText(updateNeeded ? DllApiClient.getCompatibilityMessage() : DllApiClient.getApiAddress());
+        }
+        if (this.initializationLabel != null) {
+            String initializationText = initialized
+                    ? (gameOpen ? "● 初始化完成 · 正在连接" : "● 初始化完成 · 等待游戏")
+                    : (DllApiClient.isPluginUpdateRequired() ? "● 等待退出游戏后同步" : "● DLL 初始化/同步中");
+            if (!this.automaticInitializationEnabled) initializationText = "● DLL 自动初始化已暂停";
+            I18n.setText(this.initializationLabel, initializationText);
+            this.initializationLabel.setToolTipText(I18n.tr(this.pluginInitializationStatus));
+            this.initializationLabel.setForeground(initialized ? new Color(12, 123, 68) : GOLD_ACCENT);
+            this.initializationLabel.setBackground(initialized ? new Color(235, 248, 241) : new Color(255, 247, 219));
+            if (this.initializationLabel.isVisible() == connected) {
+                this.initializationLabel.setVisible(!connected);
+                this.initializationLabel.getParent().revalidate();
+            }
         }
         if (this.automationStateLabel != null) {
             I18n.setText(this.automationStateLabel, this.isRunning ? "● 自动化运行中" : "● 自动化已停止");
@@ -1078,10 +1167,24 @@ extends JFrame {
             this.automationStateLabel.setBackground(this.isRunning ? new Color(255, 247, 229) : SURFACE_ALT);
         }
         if (this.overviewConnectionValue != null) {
-            I18n.setText(this.overviewConnectionValue, connected ? "已连接" : (gameOpen ? "插件未连接" : "未连接"));
+            I18n.setText(this.overviewConnectionValue, connected ? "已连接" : (!initialized ? "DLL 同步中" : (updateNeeded ? "需部署插件" : (gameOpen ? "正在连接" : "等待游戏"))));
+            this.overviewConnectionValue.setForeground(connected ? new Color(12, 123, 68) : GOLD_ACCENT);
         }
+        if (this.overviewConnectionHint != null) I18n.setText(this.overviewConnectionHint, "本机接口 " + DllApiClient.getApiAddress());
+        if (this.apiAddressLabel != null) I18n.setText(this.apiAddressLabel, "后台环境 / Runtime: 本机 API " + DllApiClient.getApiAddress());
+        if (this.gamePathStatusLabel != null) I18n.setText(this.gamePathStatusLabel, this.pluginInitializationStatus);
+        if (this.automaticUpdateStatusLabel != null) I18n.setText(this.automaticUpdateStatusLabel, this.automaticUpdateStatus);
         if (this.overviewAutomationValue != null) {
-            I18n.setText(this.overviewAutomationValue, this.isRunning ? "运行中" : "已停止");
+            I18n.setText(this.overviewAutomationValue, this.automationOverviewStatus());
+            this.overviewAutomationValue.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 12));
+            this.overviewAutomationValue.setForeground(this.automationQueueSize > 1
+                    ? new Color(180, 88, 0) : GOLD_ACCENT);
+            this.overviewAutomationValue.setToolTipText(this.automationQueueStatus());
+        }
+        if (this.overviewAutomationHint != null) {
+            I18n.setText(this.overviewAutomationHint, this.isRunning
+                    ? "开箱计划：普通 " + formatScheduledTime(this.nextWhiteChestAt) + " · 稀有 " + formatScheduledTime(this.nextBlueChestAt)
+                    : "开箱按 CD 定时，任务冲突时排队");
         }
         if (this.overviewCorrosionValue != null) {
             int enabled = Config.Synthesis.isCorrosionEnabled ? 1 : 0;
@@ -1093,8 +1196,42 @@ extends JFrame {
                     ? task.getLastResultMessage() : this.detectedPlaguelandsStatus);
         }
         if (this.footerStatusLabel != null && !this.manualCorrosionRunning) {
-            I18n.setText(this.footerStatusLabel, this.isRunning ? "自动任务运行中 · F8 可停止" : this.lastCorrosionStatus);
+            I18n.setText(this.footerStatusLabel, this.isRunning
+                    ? this.automationQueueCompactStatus() + " · F8 可停止"
+                    : (DllApiClient.isInitializationReady() ? this.lastCorrosionStatus : this.pluginInitializationStatus));
         }
+    }
+
+    private void startPluginInitialization() {
+        Thread initializer = new Thread(() -> {
+            String lastMessage = "";
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    if (this.automaticInitializationEnabled) {
+                        DeployManager.Initialization result = DeployManager.initializeOnStartup();
+                        this.pluginInitializationStatus = result.message;
+                        DllApiClient.setInitializationState(result.ready, result.waitForExit, result.message);
+                        if (this.gamePathField != null
+                                && Config.UserData.GAME_PATH != null && !Config.UserData.GAME_PATH.isEmpty()) {
+                            SwingUtilities.invokeLater(() -> {
+                                if (this.gamePathField.getText().trim().isEmpty()) this.gamePathField.setText(Config.UserData.GAME_PATH);
+                            });
+                        }
+                        if (!lastMessage.equals(result.message)) {
+                            System.out.println(">>> [启动初始化] " + result.message);
+                            lastMessage = result.message;
+                        }
+                    }
+                    Thread.sleep(3000L);
+                } catch (InterruptedException ex) { Thread.currentThread().interrupt(); }
+                catch (Exception ex) {
+                    this.pluginInitializationStatus = "DLL 自动初始化失败：" + ex.getMessage();
+                    DllApiClient.setInitializationState(false, false, this.pluginInitializationStatus);
+                }
+            }
+        }, "tbh-plugin-initializer");
+        initializer.setDaemon(true);
+        initializer.start();
     }
 
     private void startCorrosionMonitor() {
@@ -1107,7 +1244,7 @@ extends JFrame {
                         String capacity;
                         String pluginStatus = DllApiClient.getGameStatus();
                         if (pluginStatus == null || !pluginStatus.startsWith("SUCCESS|")) {
-                            display = "游戏插件 API 未连接；污染度与仓库数据暂不可用";
+                            display = "游戏插件 API " + DllApiClient.getApiAddress() + " 未连接；污染度与仓库数据暂不可用";
                             capacity = "API 未连接";
                         } else {
                             MonitorStatus status = DllApiClient.getMonitorStatus();
@@ -1163,7 +1300,8 @@ extends JFrame {
         }
         String pluginStatus = DllApiClient.getGameStatus();
         if (pluginStatus == null || !pluginStatus.startsWith("SUCCESS|")) {
-            JOptionPane.showMessageDialog(this, I18n.tr("游戏插件 API 未连接。请确认游戏已加载当前插件，并检查 BepInEx 日志中的监听地址与端口冲突。"), I18n.tr("游戏 API 未连接"), JOptionPane.WARNING_MESSAGE);
+            JOptionPane.showMessageDialog(this, I18n.tr("游戏插件 API 未连接。请确认游戏已加载当前插件，并检查 BepInEx 日志中的监听地址与端口冲突。")
+                    + "\n本机接口：" + DllApiClient.getApiAddress(), I18n.tr("游戏 API 未连接"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         this.manualCorrosionRunning = true;
@@ -1341,15 +1479,26 @@ extends JFrame {
     private JPanel createOperationPacingPanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 8));
         panel.setOpaque(false);
-        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
-        row.setOpaque(false);
-        row.add(new JLabel("开箱、合成和腐蚀共用间隔（秒）："));
-        this.operationGapSpinner = new JSpinner(new SpinnerNumberModel(Config.Safety.ACTION_GAP_SECONDS, 20, 300, 5));
-        row.add(this.operationGapSpinner);
-        JLabel note = new JLabel("每步点击间隔2秒；上一次操作完成并稳定后才执行下一步。最小统一间隔20秒。");
+        JPanel rows = new JPanel();
+        rows.setOpaque(false);
+        rows.setLayout(new BoxLayout(rows, BoxLayout.Y_AXIS));
+        JPanel clickRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        clickRow.setOpaque(false);
+        clickRow.add(new JLabel("每步点击间隔（秒）："));
+        this.clickGapSpinner = new JSpinner(new SpinnerNumberModel(Config.Safety.CLICK_GAP_SECONDS, 1, 300, 1));
+        clickRow.add(this.clickGapSpinner);
+        JPanel taskRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
+        taskRow.setOpaque(false);
+        taskRow.add(new JLabel("任务完成后的共用排队间隔（秒，最低3秒）："));
+        this.operationGapSpinner = new JSpinner(new SpinnerNumberModel(Config.Safety.ACTION_GAP_SECONDS, 3, 300, 1));
+        taskRow.add(this.operationGapSpinner);
+        rows.add(clickRow);
+        rows.add(Box.createRigidArea(new Dimension(0, 6)));
+        rows.add(taskRow);
+        JLabel note = new JLabel("每项任务完成后才开始共用间隔；开箱、合成、腐蚀等到期任务按队列逐项执行。库存或动画未稳定时会继续等待。");
         note.setForeground(MUTED_COLOR);
         note.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 11));
-        panel.add(row, BorderLayout.NORTH);
+        panel.add(rows, BorderLayout.NORTH);
         panel.add(note, BorderLayout.CENTER);
         return panel;
     }
@@ -1409,8 +1558,11 @@ extends JFrame {
         this.corrosionEnabledCheck = new JCheckBox("启用污染度/仓库阈值自动腐蚀", Config.Synthesis.isCorrosionEnabled);
         this.corrosionWarehouseCheck = new JCheckBox("包含仓库物品", Config.Synthesis.corrosionUseWarehouse);
         this.corrosionExcludeInscriptionScrollsCheck = new JCheckBox(
-                "自动剔除铭文/铭刻材料（不限品质），其余物品继续腐蚀", Config.Synthesis.corrosionExcludeInscriptionScrolls);
-        this.corrosionExcludeInscriptionScrollsCheck.setToolTipText("逐个退回铭文/铭刻材料，保留其他合格物品；腐蚀无需填满9格。");
+                "排除铭刻材料：铭文卷轴（不限品质）", Config.Synthesis.corrosionExcludeInscriptionScrolls);
+        this.corrosionExcludeInscriptionScrollsCheck.setToolTipText("仅按道具名称中的“铭文卷轴”识别铭刻材料。");
+        this.corrosionExcludeOfferingCoinsCheck = new JCheckBox(
+                "排除供奉材料：纪念币（不限品质）", Config.Synthesis.corrosionExcludeOfferingCoins);
+        this.corrosionExcludeOfferingCoinsCheck.setToolTipText("仅按道具名称中的“纪念币”识别供奉材料。");
         this.corrosionMonitorValue = new JLabel("监控等待游戏连接");
         this.corrosionMonitorValue.setForeground(CYAN_ACCENT);
         this.corrosionMonitorValue.setFont(scaledFont("Microsoft YaHei UI", Font.BOLD, 12));
@@ -1434,14 +1586,15 @@ extends JFrame {
 
         JPanel cdRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         cdRow.setOpaque(false);
-        cdRow.add(new JLabel("自动批次间隔 (秒，至少120):"));
+        cdRow.add(new JLabel("自动批次间隔（秒，10～120）："));
         cdRow.add(Box.createRigidArea(new Dimension(5, 0)));
-        this.corrosionCdField = new JTextField(String.valueOf(Math.max(120, Config.Synthesis.CORROSION_AUTO_INTERVAL_SEC)), 5);
+        this.corrosionCdField = new JSpinner(new SpinnerNumberModel(CorrosionTiming.clamp(Config.Synthesis.CORROSION_AUTO_INTERVAL_SEC), 10, 120, 1));
         cdRow.add(this.corrosionCdField);
 
         this.corrosionEnabledCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
         this.corrosionWarehouseCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
         this.corrosionExcludeInscriptionScrollsCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
+        this.corrosionExcludeOfferingCoinsCheck.setAlignmentX(Component.LEFT_ALIGNMENT);
         thresholdRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         limitRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         cdRow.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -1451,6 +1604,8 @@ extends JFrame {
         settings.add(Box.createRigidArea(new Dimension(0, 8)));
         settings.add(this.corrosionExcludeInscriptionScrollsCheck);
         settings.add(Box.createRigidArea(new Dimension(0, 8)));
+        settings.add(this.corrosionExcludeOfferingCoinsCheck);
+        settings.add(Box.createRigidArea(new Dimension(0, 8)));
         settings.add(this.corrosionMonitorValue);
         settings.add(Box.createRigidArea(new Dimension(0, 8)));
         settings.add(thresholdRow);
@@ -1459,12 +1614,6 @@ extends JFrame {
         settings.add(Box.createRigidArea(new Dimension(0, 8)));
         settings.add(cdRow);
         settings.add(Box.createRigidArea(new Dimension(0, 14)));
-        JButton confirmCorrosionSettings = new ModernUI.ActionButton("确认腐蚀设置");
-        this.styleActionButton(confirmCorrosionSettings, new Color(232, 244, 248), CYAN_ACCENT);
-        confirmCorrosionSettings.setAlignmentX(Component.LEFT_ALIGNMENT);
-        confirmCorrosionSettings.addActionListener(e -> this.confirmSettings());
-        settings.add(confirmCorrosionSettings);
-        settings.add(Box.createRigidArea(new Dimension(0, 10)));
         JTextArea rule = new JTextArea("污染度达到目标值或仓库负载达到目标比例时按间隔腐蚀；污染度高于目标值且仓库负载低于目标比例时暂停。仓库比例按实际已用格数和总格数计算；勾选“包含仓库”后腐蚀会从仓库取物。");
         rule.setEditable(false);
         rule.setLineWrap(true);
@@ -1620,13 +1769,55 @@ extends JFrame {
         p.add(new JLabel("选择后立即保存，重启后继续使用。"), gbc);
         gbc.gridwidth = 1;
         gbc.gridx = 0;
-        gbc.gridy = 4;
+        gbc.gridy = 3;
         gbc.weightx = 0.0;
-        p.add((Component)new JLabel("\u540e\u53f0\u73af\u5883 / Runtime:"), gbc);
+        p.add(new JLabel("游戏目录 / Game folder"), gbc);
+        this.gamePathField = new JTextField(Config.UserData.GAME_PATH == null ? "" : Config.UserData.GAME_PATH);
+        JPanel gamePathPanel = new JPanel(new BorderLayout(8, 0));
+        gamePathPanel.setOpaque(false);
+        gamePathPanel.add(this.gamePathField, BorderLayout.CENTER);
+        JPanel gamePathActions = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+        gamePathActions.setOpaque(false);
+        JButton browseGamePath = new ModernUI.ActionButton("浏览 / Browse");
+        browseGamePath.addActionListener(event -> {
+            javax.swing.JFileChooser chooser = new javax.swing.JFileChooser();
+            chooser.setDialogTitle(I18n.tr("选择包含 TaskBarHero.exe 的游戏目录"));
+            chooser.setFileSelectionMode(javax.swing.JFileChooser.DIRECTORIES_ONLY);
+            chooser.setAcceptAllFileFilterUsed(false);
+            String current = this.gamePathField.getText().trim();
+            if (!current.isEmpty() && new File(current).isDirectory()) chooser.setCurrentDirectory(new File(current));
+            if (chooser.showOpenDialog(this) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                this.gamePathField.setText(chooser.getSelectedFile().getAbsolutePath());
+                this.saveGamePathFromField(true);
+            }
+        });
+        JButton saveGamePath = new ModernUI.ActionButton("验证并保存");
+        saveGamePath.addActionListener(event -> this.saveGamePathFromField(true));
+        gamePathActions.add(browseGamePath);
+        gamePathActions.add(saveGamePath);
+        gamePathPanel.add(gamePathActions, BorderLayout.EAST);
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        p.add(gamePathPanel, gbc);
+        this.gamePathField.addActionListener(event -> this.saveGamePathFromField(true));
+        gbc.gridx = 0;
+        gbc.gridy = 4;
+        gbc.gridwidth = 2;
+        this.gamePathStatusLabel = new JLabel("请输入或浏览包含 TaskBarHero.exe 的游戏目录；清除前会再次校验。");
+        this.gamePathStatusLabel.setForeground(MUTED_COLOR);
+        p.add(this.gamePathStatusLabel, gbc);
+        gbc.gridwidth = 1;
+        gbc.gridx = 0;
+        gbc.gridy = 5;
+        gbc.weightx = 0.0;
+        this.apiAddressLabel = new JLabel("后台环境 / Runtime: 本机 API " + DllApiClient.getApiAddress());
+        p.add(this.apiAddressLabel, gbc);
         JPanel deployBtnPanel = new JPanel(new FlowLayout(0, 0, 0));
         deployBtnPanel.setOpaque(false);
         this.deployApiBtn = new ModernUI.ActionButton("\u4e00\u952e\u90e8\u7f72");
         this.deployApiBtn.addActionListener(e -> {
+            String typedPath = this.gamePathField.getText().trim();
+            if (!typedPath.isEmpty() && !this.saveGamePathFromField(true)) return;
             int choice = JOptionPane.showConfirmDialog(this, I18n.tr("将后台运行环境和插件写入游戏目录。请先退出游戏；已存在的文件会先备份。继续部署？"), I18n.tr("环境部署"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
             if (choice != 0) {
                 return;
@@ -1636,6 +1827,7 @@ extends JFrame {
             new Thread(() -> {
                 try {
                     boolean success = DeployManager.checkAndDeploy();
+                    if (success) this.automaticInitializationEnabled = true;
                     SwingUtilities.invokeLater(() -> {
                         if (!success) {
                             JOptionPane.showMessageDialog(this, I18n.tr("\u90e8\u7f72\u5931\u8d25\uff01\u8bf7\u786e\u8ba4\u6e38\u620f\u5df2\u9000\u51fa\uff0c\u4e14 BepInExPackage \u4e0e\u672c\u8f6f\u4ef6\u5728\u540c\u4e00\u76ee\u5f55\u3002"), I18n.tr("\u9519\u8bef"), 0);
@@ -1652,17 +1844,26 @@ extends JFrame {
                 }
             }).start();
         });
-        this.uninstallApiBtn = new ModernUI.ActionButton("停用本插件");
+        this.uninstallApiBtn = new ModernUI.ActionButton("清除完整环境");
         this.uninstallApiBtn.addActionListener(e -> {
-            int choice = JOptionPane.showConfirmDialog(this, I18n.tr("退出游戏后，将本插件移到备份目录。共享 BepInEx 环境和其他插件保留。继续停用？"), I18n.tr("停用插件"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+            if (!this.saveGamePathFromField(true)) return;
+            int choice = JOptionPane.showConfirmDialog(this,
+                    I18n.tr("请先退出游戏。此操作会永久删除游戏目录中的完整 BepInEx 环境，包括所有插件、配置、生成文件和启动文件；不会创建备份。继续清除？"),
+                    I18n.tr("清除插件环境"), JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (choice == 0) {
+                this.stopBot();
+                this.automaticInitializationEnabled = false;
+                this.pluginInitializationStatus = "环境清除中，自动初始化已暂停。";
+                DllApiClient.setInitializationState(false, false, this.pluginInitializationStatus);
                 this.uninstallApiBtn.setEnabled(false);
-                I18n.setText(this.uninstallApiBtn, "正在停用...");
+                I18n.setText(this.uninstallApiBtn, "正在清除...");
                 new Thread(() -> {
-                    DeployManager.uninstall();
+                    boolean removed = DeployManager.uninstall(Config.UserData.GAME_PATH);
+                    this.pluginInitializationStatus = removed ? "环境已清除，本次会话的自动初始化已暂停。" : "环境清除失败，自动初始化已暂停。";
+                    DllApiClient.setInitializationState(false, false, this.pluginInitializationStatus);
                     SwingUtilities.invokeLater(() -> {
                         this.uninstallApiBtn.setEnabled(true);
-                        I18n.setText(this.uninstallApiBtn, "停用本插件");
+                        I18n.setText(this.uninstallApiBtn, "清除完整环境");
                     });
                 }).start();
             }
@@ -1674,7 +1875,7 @@ extends JFrame {
         gbc.weightx = 1.0;
         p.add((Component)deployBtnPanel, gbc);
         gbc.gridx = 0;
-        gbc.gridy = 5;
+        gbc.gridy = 6;
         gbc.weightx = 0.0;
         p.add(new JLabel("版本更新 / Version:"), gbc);
         JPanel updatePanel = new JPanel(new FlowLayout(0, 0, 0));
@@ -1690,12 +1891,19 @@ extends JFrame {
         gbc.weightx = 1.0;
         p.add(updatePanel, gbc);
         gbc.gridx = 0;
-        gbc.gridy = 6;
+        gbc.gridy = 7;
         gbc.gridwidth = 2;
         p.add(new JLabel("当前版本 " + Config.Global.APP_VERSION + "；检测到新版本可直接下载并替换。"), gbc);
         gbc.gridwidth = 1;
         gbc.gridx = 0;
-        gbc.gridy = 7;
+        gbc.gridy = 8;
+        gbc.gridwidth = 2;
+        this.automaticUpdateStatusLabel = new JLabel(this.automaticUpdateStatus);
+        this.automaticUpdateStatusLabel.setForeground(MUTED_COLOR);
+        this.automaticUpdateStatusLabel.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 11));
+        p.add(this.automaticUpdateStatusLabel, gbc);
+        gbc.gridwidth = 1;
+        gbc.gridy = 9;
         gbc.weightx = 0.0;
         p.add(new JLabel("界面背景："), gbc);
         gbc.gridx = 1;
@@ -1704,14 +1912,133 @@ extends JFrame {
         return p;
     }
 
+    private int enqueueDueJobs(List<AutomationJob> jobs, ArrayDeque<AutomationJob> queue,
+            Set<String> queuedKeys, int startIndex) {
+        List<AutomationJob> pending = new ArrayList<AutomationJob>(queue);
+        for (AutomationJob job : jobs) {
+            if (queuedKeys.contains(job.key) || !job.due.getAsBoolean()) continue;
+            job.dueAt = job.nextAt.getAsLong();
+            pending.add(job);
+            queuedKeys.add(job.key);
+        }
+        pending.sort((a, b) -> {
+            int time = Long.compare(a.dueAt, b.dueAt);
+            if (time != 0) return time;
+            int priority = Integer.compare(a.key.startsWith("chest-") ? 0 : 1, b.key.startsWith("chest-") ? 0 : 1);
+            return priority != 0 ? priority : Integer.compare(jobs.indexOf(a), jobs.indexOf(b));
+        });
+        queue.clear();
+        queue.addAll(pending);
+        return 0;
+    }
+
+    private long earliestJobTime(List<AutomationJob> jobs) {
+        AutomationJob next = earliestJob(jobs, null);
+        return next == null ? Long.MAX_VALUE : next.nextAt.getAsLong();
+    }
+
+    private AutomationJob earliestJob(List<AutomationJob> jobs, String excludedKey) {
+        AutomationJob earliest = null;
+        long earliestAt = Long.MAX_VALUE;
+        for (AutomationJob job : jobs) {
+            if (excludedKey != null && excludedKey.equals(job.key)) continue;
+            long at = job.nextAt.getAsLong();
+            if (at == Long.MAX_VALUE) continue;
+            if (at < earliestAt) {
+                earliestAt = at;
+                earliest = job;
+            }
+        }
+        return earliest;
+    }
+
+    private String automationQueueStatus() {
+        if (!this.isRunning) return "已停止";
+        String next = this.queuedAutomationTask.isEmpty() ? "等待调度" : this.queuedAutomationTask;
+        if (!this.activeAutomationTask.isEmpty()) return "执行中：" + this.activeAutomationTask + "；下一项：" + next
+                + (this.automationQueueSize > 0 ? " · 排队" + this.automationQueueSize + "项" : "");
+        if (this.automationQueueWaitActive) return "高频风险冲突：下一项：" + next + " · 排队倒计时 "
+                + formatCountdown(this.automationNextExecutionAtMillis);
+        return "待命；下一项：" + next + " · 计划 " + formatScheduledTime(this.automationNextExecutionAtMillis);
+    }
+
+    private String automationQueueCompactStatus() {
+        if (!this.isRunning) return "已停止";
+        if (!this.activeAutomationTask.isEmpty()) return "执行中：" + this.activeAutomationTask;
+        if (this.automationQueueWaitActive) return "排队 · " + formatCountdown(this.automationNextExecutionAtMillis);
+        return "待命 · 按计划运行";
+    }
+
+    private String automationOverviewStatus() {
+        String current = this.activeAutomationTask.isEmpty()
+                ? (this.automationQueueWaitActive ? "任务冲突，等待间隔" : "待命") : this.activeAutomationTask;
+        String next = this.queuedAutomationTask.isEmpty() ? "等待调度" : this.queuedAutomationTask;
+        String detail = "";
+        if (!this.activeAutomationTask.isEmpty() && this.automationQueueSize > 0) detail = " · 排队中";
+        else if (this.automationQueueWaitActive) detail = " · 排队 " + formatCountdown(this.automationNextExecutionAtMillis);
+        else if (!this.queuedAutomationTask.isEmpty()) detail = " · 计划 " + formatScheduledTime(this.automationNextExecutionAtMillis);
+        if (!this.isRunning) { current = "已停止"; next = "—"; detail = ""; }
+        return "<html><div style='font-size:11pt'><b>当前：</b>" + current + "<br><b>下一项：</b>"
+                + next + detail + "</div></html>";
+    }
+
+    private static String formatScheduledTime(long time) {
+        return time <= 0L || time == Long.MAX_VALUE ? "—" : new SimpleDateFormat("HH:mm:ss").format(new Date(time));
+    }
+
+    private static String formatCountdown(long targetMillis) {
+        if (targetMillis == Long.MAX_VALUE || targetMillis <= 0L) return "--:--";
+        long seconds = Math.max(0L, (targetMillis - System.currentTimeMillis() + 999L) / 1000L);
+        long hours = seconds / 3600L;
+        long minutes = (seconds % 3600L) / 60L;
+        long remainder = seconds % 60L;
+        return hours > 0L ? String.format(java.util.Locale.ROOT, "%d:%02d:%02d", hours, minutes, remainder)
+                : String.format(java.util.Locale.ROOT, "%02d:%02d", minutes, remainder);
+    }
+
+    private boolean saveGamePathFromField(boolean showError) {
+        try {
+            String validated = DeployManager.validateGameDirectory(this.gamePathField.getText());
+            if (!Config.UserData.saveGamePath(validated)) throw new java.io.IOException("settings.properties 保存失败。");
+            this.gamePathField.setText(validated);
+            I18n.setText(this.gamePathStatusLabel, "游戏目录已验证并保存。");
+            this.gamePathStatusLabel.setForeground(new Color(12, 123, 68));
+            return true;
+        } catch (Exception ex) {
+            I18n.setText(this.gamePathStatusLabel, "游戏目录无效：" + ex.getMessage());
+            this.gamePathStatusLabel.setForeground(new Color(176, 35, 64));
+            if (showError) JOptionPane.showMessageDialog(this, I18n.tr("游戏目录无效：") + ex.getMessage(), I18n.tr("目录未确认"), JOptionPane.WARNING_MESSAGE);
+            return false;
+        }
+    }
+
     /** 查询 GitHub 最新发布；有更新时询问是否直接替换。 */
     private void runUpdateCheck() {
+        this.checkForUpdates(false);
+    }
+
+    private void startAutomaticUpdateChecks() {
+        this.automaticUpdateScheduler = Executors.newSingleThreadScheduledExecutor(task -> {
+            Thread thread = new Thread(task, "tbh-automatic-update");
+            thread.setDaemon(true);
+            return thread;
+        });
+        this.automaticUpdateScheduler.scheduleAtFixedRate(() -> this.checkForUpdates(true),
+                2L, TimeUnit.HOURS.toSeconds(6L), TimeUnit.SECONDS);
+    }
+
+    private void checkForUpdates(boolean automatic) {
+        if (this.updateInstallRunning.get() || !this.updateCheckRunning.compareAndSet(false, true)) return;
+        SwingUtilities.invokeLater(() -> {
         this.updateCheckBtn.setEnabled(false);
         I18n.setText(this.updateCheckBtn, "正在检测...");
+        });
+        this.automaticUpdateStatus = "正在检测 GitHub 版本...";
         new Thread(() -> {
             String message;
             boolean updateAvailable = false;
             UpdateChecker.Release release = null;
+            boolean failed = false;
             try {
                 release = UpdateChecker.latest();
                 updateAvailable = UpdateChecker.hasUpdate(release);
@@ -1719,29 +2046,57 @@ extends JFrame {
                         ? "发现新版本 " + release.tag + "（当前 " + Config.Global.APP_VERSION + "）。"
                         : "当前已是最新版本 " + Config.Global.APP_VERSION + "。";
             } catch (Exception ex) {
+                failed = true;
                 message = "检测更新失败：" + ex.getMessage();
             }
+            String checkedAt = new SimpleDateFormat("MM-dd HH:mm").format(new Date());
+            this.automaticUpdateStatus = (failed ? "自动检测暂不可用 · " : "上次检测 ") + checkedAt
+                    + " · 每隔 6 小时自动检测";
             final String text = message;
             final boolean available = updateAvailable;
             final UpdateChecker.Release found = release;
             SwingUtilities.invokeLater(() -> {
+                this.updateCheckRunning.set(false);
                 this.updateCheckBtn.setEnabled(true);
                 I18n.setText(this.updateCheckBtn, "检测更新");
-                if (!available || found == null) {
-                    JOptionPane.showMessageDialog(this, text, I18n.tr("版本更新"), JOptionPane.INFORMATION_MESSAGE);
+                if (available && found != null) {
+                    this.pendingUpdate = found;
+                    I18n.setText(this.updateNoticeButton, "发现新版本 " + found.tag + " · 点击更新");
+                    this.updateNoticeButton.setVisible(true);
+                    this.updateNoticeButton.getParent().revalidate();
+                    if (automatic && this.notifiedUpdateTags.add(found.tag)) {
+                        this.desktopSupport.showNotification("TBH助手版本更新", text,
+                                () -> this.offerUpdate(this.pendingUpdate));
+                    }
+                }
+                this.updateRuntimeStatus();
+                if (automatic) {
+                    System.out.println(">>> [自动更新] " + text);
                     return;
                 }
-                int choice = JOptionPane.showConfirmDialog(this,
-                        text + "\n是否现在下载并更新？更新会在退出助手后替换文件并自动重启。",
-                        I18n.tr("版本更新"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
-                if (choice == 0) this.runUpdateApply(found);
+                if (!available || found == null) {
+                    JOptionPane.showMessageDialog(this, I18n.tr(text), I18n.tr("版本更新"), JOptionPane.INFORMATION_MESSAGE);
+                    return;
+                }
+                this.offerUpdate(found);
             });
         }, "tbh-update-check").start();
     }
 
+    private void offerUpdate(UpdateChecker.Release release) {
+        if (release == null || this.updateInstallRunning.get()) return;
+        int choice = JOptionPane.showConfirmDialog(this,
+                I18n.tr("发现新版本 " + release.tag + "（当前 " + Config.Global.APP_VERSION + "）。"
+                        + "\n是否现在下载并更新？更新会在退出助手后替换文件并自动重启。"),
+                I18n.tr("版本更新"), JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE);
+        if (choice == 0) this.runUpdateApply(release);
+    }
+
     /** 下载发布包并在助手退出后替换安装目录。 */
     private void runUpdateApply(UpdateChecker.Release release) {
+        if (!this.updateInstallRunning.compareAndSet(false, true)) return;
         this.updateCheckBtn.setEnabled(false);
+        this.updateNoticeButton.setEnabled(false);
         I18n.setText(this.updateCheckBtn, "正在下载...");
         new Thread(() -> {
             String error = null;
@@ -1755,6 +2110,8 @@ extends JFrame {
             final String failure = error;
             SwingUtilities.invokeLater(() -> {
                 if (failure != null) {
+                    this.updateInstallRunning.set(false);
+                    this.updateNoticeButton.setEnabled(true);
                     this.updateCheckBtn.setEnabled(true);
                     I18n.setText(this.updateCheckBtn, "检测更新");
                     JOptionPane.showMessageDialog(this, "更新失败：" + failure, I18n.tr("错误"), JOptionPane.ERROR_MESSAGE);
@@ -1802,7 +2159,8 @@ extends JFrame {
                         sourceStatus = "等待游戏连接；新开箱和战斗事件将在连接后记录。";
                         this.detectedPlaguelandsStatus = "等待游戏连接";
                     } else if (!pluginReady) {
-                        sourceStatus = "游戏插件 API 未连接：检查插件加载日志和本地服务端口。";
+                        sourceStatus = DllApiClient.isPluginUpdateRequired() ? DllApiClient.getCompatibilityMessage()
+                                : "游戏插件 API 未连接（" + DllApiClient.getApiAddress() + "）：检查插件加载日志和本机监听状态。";
                         this.detectedPlaguelandsStatus = "游戏 API 未连接，地图数据暂不可用";
                     } else {
                         if (System.currentTimeMillis() - this.lastGameEventPollAtMillis
@@ -1880,20 +2238,26 @@ extends JFrame {
             }
             int pollutionThreshold = Integer.parseInt(this.corrosionPollutionThresholdField.getText().trim());
             int warehouseThreshold = Integer.parseInt(this.corrosionWarehouseThresholdField.getText().trim());
-            int corrosionInterval = Math.max(120, Integer.parseInt(this.corrosionCdField.getText().trim()));
+            this.corrosionCdField.commitEdit();
+            int corrosionInterval = ((Number)this.corrosionCdField.getValue()).intValue();
+            int clickGap = this.clickGapSpinner == null ? Config.Safety.CLICK_GAP_SECONDS
+                    : ((Number)this.clickGapSpinner.getValue()).intValue();
+            int operationGap = this.operationGapSpinner == null ? Config.Safety.ACTION_GAP_SECONDS
+                    : ((Number)this.operationGapSpinner.getValue()).intValue();
             int blueCd = Integer.parseInt(this.blueCdField.getText().trim());
             int whiteCd = Integer.parseInt(this.whiteCdField.getText().trim());
             int storeCd = Integer.parseInt(this.storeCdField.getText().trim());
             int equipCd = Integer.parseInt(this.synthCdField.getText().trim());
             int materialCd = Integer.parseInt(this.materialSynthCdField.getText().trim());
             double matchThreshold = Double.parseDouble(this.thresholdField.getText().trim());
-            if (pollutionThreshold < 0 || warehouseThreshold < 1 || warehouseThreshold > 100
+            if (corrosionInterval < 10 || corrosionInterval > 120 || pollutionThreshold < 0 || warehouseThreshold < 1 || warehouseThreshold > 100
+                    || clickGap < 1 || clickGap > 300 || operationGap < 3 || operationGap > 300
                     || blueCd < 1 || blueCd > 1440 || whiteCd < 1 || whiteCd > 1440
                     || storeCd < 1 || storeCd > 1440 || equipCd < 1 || equipCd > 1440
                     || materialCd < 1 || materialCd > 1440 || matchThreshold < 0.5 || matchThreshold > 0.99) {
                 return false;
             }
-            I18n.setText(this.corrosionCdField, String.valueOf(corrosionInterval));
+            this.corrosionCdField.setValue(corrosionInterval);
             I18n.setText(this.blueCdField, String.valueOf(blueCd));
             I18n.setText(this.whiteCdField, String.valueOf(whiteCd));
             I18n.setText(this.storeCdField, String.valueOf(storeCd));
@@ -1928,13 +2292,15 @@ extends JFrame {
             prop.setProperty("corrosion_enabled", String.valueOf(this.corrosionEnabledCheck.isSelected()));
             prop.setProperty("corrosion_use_warehouse", String.valueOf(this.corrosionWarehouseCheck.isSelected()));
             prop.setProperty("corrosion_auto_interval_sec", String.valueOf(corrosionInterval));
-            prop.setProperty("operation_gap_seconds", String.valueOf(this.operationGapSpinner == null ? Config.Safety.ACTION_GAP_SECONDS
-                    : Math.max(20, Math.min(300, ((Number)this.operationGapSpinner.getValue()).intValue()))));
+            prop.setProperty("operation_gap_seconds", String.valueOf(operationGap));
+            prop.setProperty("click_gap_seconds", String.valueOf(clickGap));
             prop.setProperty("corrosion_pollution_threshold", String.valueOf(pollutionThreshold));
             prop.setProperty("corrosion_warehouse_threshold_percent", String.valueOf(warehouseThreshold));
             prop.setProperty("corrosion_max_grade", String.valueOf(this.corrosionMaxGradeBox.getSelectedIndex()));
             prop.setProperty("corrosion_exclude_inscription_scrolls",
                     String.valueOf(this.corrosionExcludeInscriptionScrollsCheck.isSelected()));
+            prop.setProperty("corrosion_exclude_offering_coins",
+                    String.valueOf(this.corrosionExcludeOfferingCoinsCheck.isSelected()));
             int statsRetention = this.statsRetentionSpinner == null ? Config.Global.STATS_RETENTION_HOURS
                     : ActivityStore.clampHours(((Number)this.statsRetentionSpinner.getValue()).intValue());
             int logRetention = this.logsRetentionSpinner == null ? Config.Global.LOG_RETENTION_HOURS
@@ -1991,13 +2357,21 @@ extends JFrame {
             return;
         }
         String pluginStatus = DllApiClient.getGameStatus();
-        if (pluginStatus == null || !pluginStatus.startsWith("SUCCESS|") || !DllApiClient.configureOperationPacing()) {
-            JOptionPane.showMessageDialog(this, I18n.tr("当前游戏仍在使用旧版插件。请退出游戏和助手，再运行 Start-TBH-Helper.cmd 更新插件。"), I18n.tr("插件待更新"), JOptionPane.WARNING_MESSAGE);
+        if (pluginStatus == null || !pluginStatus.startsWith("SUCCESS|")
+                || !DllApiClient.configureOperationPacing() || !DllApiClient.configureClickPacing()) {
+            JOptionPane.showMessageDialog(this, I18n.tr(DllApiClient.getCompatibilityMessage())
+                    + "\n本机接口：" + DllApiClient.getApiAddress() + "\n请查看游戏目录 BepInEx/LogOutput.log 中的 HTTP 服务启动记录。",
+                    I18n.tr("插件未连接"), JOptionPane.WARNING_MESSAGE);
             return;
         }
         this.startBtn.setEnabled(false);
         this.stopBtn.setEnabled(true);
         this.isRunning = true;
+        this.automationQueueSize = 0;
+        this.activeAutomationTask = "";
+        this.queuedAutomationTask = "";
+        this.automationNextExecutionAtMillis = 0L;
+        this.automationQueueWaitActive = false;
         this.updateManualCorrosionButtons();
         this.updateRuntimeStatus();
         if (this.appScaleBox != null) {
@@ -2012,21 +2386,107 @@ extends JFrame {
                 CorrosionTask corrosion = new CorrosionTask();
                 PlaguelandsTask plaguelands = new PlaguelandsTask();
                 this.activePlaguelandsTask = plaguelands;
+                List<AutomationJob> jobs = new ArrayList<AutomationJob>();
+                jobs.add(new AutomationJob("chest-blue", "蓝色宝箱", chest::isBlueDue, chest::nextBlueExecutionAt, chest::executeBlue));
+                jobs.add(new AutomationJob("chest-white", "普通宝箱", chest::isWhiteDue, chest::nextWhiteExecutionAt, chest::executeWhite));
+                jobs.add(new AutomationJob("store", "仓库整理", store::isDue, store::nextExecutionAt, store::execute));
+                jobs.add(new AutomationJob("equipment", "装备合成", synthEquip::isDue, synthEquip::nextExecutionAt, synthEquip::execute));
+                jobs.add(new AutomationJob("material", "材料合成", synthMaterial::isDue, synthMaterial::nextExecutionAt, synthMaterial::execute));
+                jobs.add(new AutomationJob("plague", "地图检测", plaguelands::isDue, plaguelands::nextExecutionAt, plaguelands::execute));
+                jobs.add(new AutomationJob("corrosion", "腐蚀", corrosion::isDue, corrosion::nextExecutionAt, corrosion::execute));
+                ArrayDeque<AutomationJob> queuedJobs = new ArrayDeque<AutomationJob>();
+                Set<String> queuedKeys = new HashSet<String>();
+                int priorityCursor = 0;
+                long nextSharedExecutionAt = 0L;
                 System.out.println("\u4efb\u52a1\u521d\u59cb\u5316\u5b8c\u6210");
                 Thread.sleep(2000L);
-                System.out.println(">>> [操作保护] 已启用游戏接口与统一操作间隔。");
+                System.out.println(">>> [操作保护] 点击间隔=" + Config.Safety.CLICK_GAP_SECONDS + "秒；任务共用排队间隔=" + Config.Safety.ACTION_GAP_SECONDS + "秒。");
                 while (this.isRunning && !Thread.currentThread().isInterrupted()) {
                     if (User32.INSTANCE.FindWindow(null, "TaskBarHero") == null) {
                         JOptionPane.showMessageDialog(null, I18n.tr("\u6e38\u620f\u610f\u5916\u5173\u95ed\uff0c\u6302\u673a\u5df2\u81ea\u52a8\u7ec8\u6b62\u3002"), I18n.tr("\u8b66\u544a"), 2);
                         break;
                     }
-                    chest.execute();
-                    store.execute();
-                    synthEquip.execute();
-                    synthMaterial.execute();
-                    plaguelands.execute();
-                    corrosion.execute();
-                    Thread.sleep(5000L);
+                    priorityCursor = this.enqueueDueJobs(jobs, queuedJobs, queuedKeys, priorityCursor);
+                    long now = System.currentTimeMillis();
+                    this.nextBlueChestAt = ChestTracker.nextBlueOpenAt();
+                    this.nextWhiteChestAt = ChestTracker.nextWhiteOpenAt();
+                    this.automationQueueSize = queuedJobs.size();
+                    this.automationQueueWaitActive = !queuedJobs.isEmpty() && now < nextSharedExecutionAt;
+                    if (!queuedJobs.isEmpty()) {
+                        this.queuedAutomationTask = queuedJobs.peekFirst().label;
+                        this.automationNextExecutionAtMillis = Math.max(nextSharedExecutionAt, now);
+                    } else {
+                        AutomationJob scheduled = this.earliestJob(jobs, null);
+                        this.queuedAutomationTask = scheduled == null ? "" : scheduled.label;
+                        long scheduledAt = scheduled == null ? Long.MAX_VALUE : scheduled.nextAt.getAsLong();
+                        this.automationNextExecutionAtMillis = scheduledAt <= now ? now + 1000L : scheduledAt;
+                    }
+                    if (corrosion.isRecoveryPending()) {
+                        queuedJobs.removeIf(job -> "corrosion".equals(job.key));
+                        queuedKeys.remove("corrosion");
+                        this.automationQueueSize = queuedJobs.size();
+                        AutomationJob next = queuedJobs.isEmpty()
+                                ? this.earliestJob(jobs, "corrosion") : queuedJobs.peekFirst();
+                        this.queuedAutomationTask = next == null ? "" : next.label;
+                        this.activeAutomationTask = "腐蚀动画确认";
+                        this.automationNextExecutionAtMillis = queuedJobs.isEmpty()
+                                ? (next == null ? Long.MAX_VALUE : next.nextAt.getAsLong())
+                                : Math.max(nextSharedExecutionAt, now);
+                        if (corrosion.isDue()) {
+                            long sequenceBefore = DllApiClient.getActionSequence();
+                            corrosion.execute();
+                            if (DllApiClient.getActionSequence() > sequenceBefore) {
+                                nextSharedExecutionAt = System.currentTimeMillis() + Config.Safety.ACTION_GAP_SECONDS * 1000L;
+                            }
+                        } else {
+                            Thread.sleep(Math.min(500L, Math.max(50L, corrosion.nextExecutionAt() - now)));
+                        }
+                        this.activeAutomationTask = "";
+                        continue;
+                    }
+                    this.activeAutomationTask = "";
+                    if (queuedJobs.isEmpty()) {
+                        long nextDue = this.earliestJobTime(jobs);
+                        this.automationNextExecutionAtMillis = nextDue <= now ? now + 1000L : nextDue;
+                        Thread.sleep(500L);
+                        continue;
+                    }
+                    if (now < nextSharedExecutionAt) {
+                        this.automationNextExecutionAtMillis = nextSharedExecutionAt;
+                        Thread.sleep(Math.min(500L, Math.max(50L, nextSharedExecutionAt - now)));
+                        continue;
+                    }
+                    AutomationJob job = queuedJobs.removeFirst();
+                    queuedKeys.remove(job.key);
+                    priorityCursor = (jobs.indexOf(job) + 1) % jobs.size();
+                    this.activeAutomationTask = job.label;
+                    this.automationQueueSize = queuedJobs.size();
+                    AutomationJob next = queuedJobs.isEmpty()
+                            ? this.earliestJob(jobs, job.key) : queuedJobs.peekFirst();
+                    this.queuedAutomationTask = next == null ? "" : next.label;
+                    this.automationNextExecutionAtMillis = queuedJobs.isEmpty()
+                            ? (next == null ? Long.MAX_VALUE : next.nextAt.getAsLong())
+                            : Math.max(nextSharedExecutionAt, now);
+                    long sequenceBefore = DllApiClient.getActionSequence();
+                    job.action.execute();
+                    if (DllApiClient.getActionSequence() > sequenceBefore) {
+                        nextSharedExecutionAt = System.currentTimeMillis() + Config.Safety.ACTION_GAP_SECONDS * 1000L;
+                    }
+                    this.enqueueDueJobs(jobs, queuedJobs, queuedKeys, 0);
+                    this.automationQueueSize = queuedJobs.size();
+                    this.automationQueueWaitActive = !queuedJobs.isEmpty() && System.currentTimeMillis() < nextSharedExecutionAt;
+                    if (this.automationQueueWaitActive)
+                        System.out.println(">>> [任务队列] " + job.label + " 已完成；" + queuedJobs.size() + " 项到期任务等待共用间隔。");
+                    this.activeAutomationTask = "";
+                    if (queuedJobs.isEmpty()) {
+                        AutomationJob scheduled = this.earliestJob(jobs, null);
+                        this.queuedAutomationTask = scheduled == null ? "" : scheduled.label;
+                        this.automationNextExecutionAtMillis = scheduled == null
+                                ? Long.MAX_VALUE : scheduled.nextAt.getAsLong();
+                    } else {
+                        this.queuedAutomationTask = queuedJobs.peekFirst().label;
+                        this.automationNextExecutionAtMillis = Math.max(nextSharedExecutionAt, System.currentTimeMillis());
+                    }
                 }
             }
             catch (InterruptedException e) {
@@ -2048,6 +2508,13 @@ extends JFrame {
             return;
         }
         this.isRunning = false;
+        this.activeAutomationTask = "";
+        this.queuedAutomationTask = "";
+        this.automationQueueSize = 0;
+        this.automationNextExecutionAtMillis = Long.MAX_VALUE;
+        this.automationQueueWaitActive = false;
+        this.nextBlueChestAt = Long.MAX_VALUE;
+        this.nextWhiteChestAt = Long.MAX_VALUE;
         if (this.botThread != null && this.botThread.isAlive()) {
             this.botThread.interrupt();
         }
@@ -2128,10 +2595,22 @@ extends JFrame {
 
     private void updateTextArea(String text) {
         ActivityStore.appendLog(text);
+        StringBuilder display = new StringBuilder();
+        String[] lines = text.split("\\r?\\n", -1);
+        for (int i = 0; i < lines.length; i++) {
+            if (i == lines.length - 1 && lines[i].isEmpty()) continue;
+            if (lines[i].isEmpty()) display.append('\n');
+            else display.append(formatLogTimestamp(System.currentTimeMillis())).append(' ').append(lines[i]).append('\n');
+        }
+        String timestamped = display.toString();
         SwingUtilities.invokeLater(() -> {
-            this.consoleArea.append(text);
+            this.consoleArea.append(timestamped);
             this.consoleArea.setCaretPosition(this.consoleArea.getDocument().getLength());
         });
+    }
+
+    private static String formatLogTimestamp(long timeMillis) {
+        return "[" + new SimpleDateFormat("MM-dd HH:mm:ss").format(new Date(timeMillis)) + "]";
     }
 
     private static void applyVisualDefaults() {

@@ -7,15 +7,25 @@ using Il2CppInterop.Runtime.Injection;
 
 namespace TbhAutoSynth;
 
-[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto API", "1.3.43")]
+[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto API", AutoApiPlugin.Version)]
 public class AutoApiPlugin : BasePlugin
 {
+	public const string Version = "1.3.59";
+	public const int ApiProtocol = 4;
+	internal static string RuntimeSignature = "";
+	internal static string RuntimeHash = "";
+	internal static string BridgeSignature = "";
 	internal static ManualLogSource Logger;
 	private Harmony _harmony;
 
 	public override void Load()
 	{
 		Logger = ((BasePlugin)this).Log;
+		string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+			System.IO.File.ReadAllBytes(typeof(AutoApiPlugin).Assembly.Location))).ToLowerInvariant();
+		RuntimeHash = hash;
+		RuntimeSignature = "|plugin_version=" + Version + "|api_protocol=" + ApiProtocol + "|plugin_sha256=" + hash;
+		Logger.LogInfo((object)("[插件版本] " + Version + "，协议=" + ApiProtocol + "，SHA256=" + hash));
 		ConsoleWindowHider.Hide();
 		try
 		{

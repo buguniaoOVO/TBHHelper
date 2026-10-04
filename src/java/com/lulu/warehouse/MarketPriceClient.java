@@ -28,7 +28,7 @@ public final class MarketPriceClient {
 
     public Quote get(String hash) { return quotes.get(hash); }
 
-    public void refresh(boolean force) {
+    public synchronized void refresh(boolean force) {
         if (!force && !quotes.isEmpty() && System.currentTimeMillis() - fetchedAt < 30 * 60 * 1000L) return;
         try {
             JsonObject prices = readUrl("https://api.tbhindex.com/api/items");
@@ -86,8 +86,9 @@ public final class MarketPriceClient {
             connection.setConnectTimeout(8000);
             connection.setReadTimeout(20000);
             connection.setUseCaches(false);
-            connection.setRequestProperty("User-Agent", "TBHHelper/1.3.37");
-            if (connection.getResponseCode() != 200) throw new IllegalStateException("HTTP " + connection.getResponseCode());
+            connection.setRequestProperty("User-Agent", "TBHHelper/" + com.lulu.config.Config.Global.APP_VERSION);
+            int responseCode = connection.getResponseCode();
+            if (responseCode != 200) throw new IllegalStateException(connection.getURL().getHost() + " HTTP " + responseCode);
             try (InputStreamReader reader = new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8)) {
                 return new JsonParser().parse(reader).getAsJsonObject();
             }

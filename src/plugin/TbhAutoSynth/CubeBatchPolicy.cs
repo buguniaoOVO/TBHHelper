@@ -13,11 +13,28 @@ internal static class CubeBatchPolicy
             : count == 0 ? "CORROSION_EMPTY|count=0" : "INVALID_COUNT";
     }
 
-    internal static bool IsExcludedMaterialName(string nameKey, string name)
+    internal static bool TryGetCorrosionExclusion(string name, bool excludeInscriptionScrolls,
+        bool excludeOfferingCoins, out string exclusion)
     {
-        string key = (nameKey ?? "").ToLowerInvariant();
-        string label = (name ?? "").ToLowerInvariant();
-        return label.Contains("铭文") || label.Contains("铭刻")
-            || key.Contains("inscription") || key.Contains("engraving") || key.Contains("engrave");
+        string label = name ?? "";
+        exclusion = "";
+        if (excludeInscriptionScrolls && (label.Contains("铭文卷轴", System.StringComparison.Ordinal)
+            || (Contains(label, "inscription") && Contains(label, "scroll"))))
+        {
+            exclusion = "铭文卷轴";
+            return true;
+        }
+        if (excludeOfferingCoins && (label.Contains("纪念币", System.StringComparison.Ordinal)
+            || (Contains(label, "anniversary") && Contains(label, "coin"))
+            || (Contains(label, "commemorative") && Contains(label, "coin"))
+            || (Contains(label, "offering") && Contains(label, "coin"))))
+        {
+            exclusion = "纪念币";
+            return true;
+        }
+        return false;
     }
+
+    private static bool Contains(string value, string token) =>
+        value.IndexOf(token, System.StringComparison.OrdinalIgnoreCase) >= 0;
 }

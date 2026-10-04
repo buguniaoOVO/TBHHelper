@@ -16,7 +16,7 @@ public class Config {
         public static String BG_IMAGE_PATH = "";
         public static String GAME_PATH = "";
 
-        public static void saveGamePath(String path) {
+        public static boolean saveGamePath(String path) {
             GAME_PATH = path;
             try {
                 Properties prop = new Properties();
@@ -30,9 +30,11 @@ public class Config {
                 try (FileOutputStream out = new FileOutputStream(file);){
                     prop.store(out, null);
                 }
+                return true;
             }
             catch (Exception e) {
                 System.err.println("\u4fdd\u5b58\u6e38\u620f\u8def\u5f84\u5931\u8d25: " + e.getMessage());
+                return false;
             }
         }
 
@@ -100,6 +102,7 @@ public class Config {
         public static long COOL_DOWN_CORROSION_MS = 1800000L;
         public static int corrosionMaxGrade = 3;
         public static boolean corrosionExcludeInscriptionScrolls = true;
+        public static boolean corrosionExcludeOfferingCoins = true;
         public static int CORROSION_AUTO_INTERVAL_SEC = 120;
         public static int CORROSION_POLLUTION_THRESHOLD = 300;
         public static int CORROSION_WAREHOUSE_THRESHOLD_PERCENT = 50;
@@ -167,8 +170,10 @@ public class Config {
             int legacyMaterialGrade = Integer.parseInt(prop.getProperty("corrosion_material_max_grade", "3"));
             corrosionMaxGrade = Integer.parseInt(prop.getProperty("corrosion_max_grade", String.valueOf(Math.min(legacyEquipmentGrade, legacyMaterialGrade))));
             corrosionExcludeInscriptionScrolls = Boolean.parseBoolean(prop.getProperty("corrosion_exclude_inscription_scrolls", "true"));
-            CORROSION_AUTO_INTERVAL_SEC = Math.max(120, Integer.parseInt(prop.getProperty("corrosion_auto_interval_sec", "120")));
-            Safety.ACTION_GAP_SECONDS = Math.max(20, Math.min(300, Integer.parseInt(prop.getProperty("operation_gap_seconds", "20"))));
+            corrosionExcludeOfferingCoins = Boolean.parseBoolean(prop.getProperty("corrosion_exclude_offering_coins", "true"));
+            CORROSION_AUTO_INTERVAL_SEC = com.lulu.core.CorrosionTiming.clamp(Integer.parseInt(prop.getProperty("corrosion_auto_interval_sec", "120")));
+            Safety.ACTION_GAP_SECONDS = Math.max(3, Math.min(300, Integer.parseInt(prop.getProperty("operation_gap_seconds", "20"))));
+            Safety.CLICK_GAP_SECONDS = Math.max(1, Math.min(300, Integer.parseInt(prop.getProperty("click_gap_seconds", "5"))));
             CORROSION_POLLUTION_THRESHOLD = Math.max(0, Integer.parseInt(prop.getProperty("corrosion_pollution_threshold", "300")));
             CORROSION_WAREHOUSE_THRESHOLD_PERCENT = Math.max(1, Math.min(100, Integer.parseInt(prop.getProperty("corrosion_warehouse_threshold_percent", "50"))));
             long legacyEquipmentCd = Long.parseLong(prop.getProperty("corrosion_equip_cd", "30"));
@@ -217,7 +222,7 @@ public class Config {
 
     public static class Global {
         public static final String APP_TITLE = "TBH助手";
-        public static final String APP_VERSION = "v1.3.48";
+        public static final String APP_VERSION = "v1.3.59";
         public static long CHECK_INTERVAL = 500L;
         public static double MATCH_THRESHOLD = 0.8;
         public static double GAME_UI_SCALE = 1.5;
@@ -231,6 +236,7 @@ public class Config {
     }
     public static class Safety {
         public static int ACTION_GAP_SECONDS = 20;
+        public static int CLICK_GAP_SECONDS = 5;
     }
 
 }

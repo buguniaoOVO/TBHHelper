@@ -40,6 +40,7 @@ namespace TbhAutoSynth;
 
 public class AutoApiBehaviour : MonoBehaviour
 {
+	private const int PREFERRED_API_PORT = 19090;
 	private sealed class WarehousePageSnapshot
 	{
 		public int PageNumber;
@@ -82,9 +83,9 @@ public class AutoApiBehaviour : MonoBehaviour
 		public TaskCompletionSource<string> ResultTcs = new TaskCompletionSource<string>();
 	}
 
-	private HttpListener _httpListener;
+	private LoopbackApiServer _localApiServer;
+	private string _apiDiscoveryPath;
 
-	private bool _isHttpServerRunning = false;
 
 	private ConcurrentQueue<ApiTask> _apiTaskQueue = new ConcurrentQueue<ApiTask>();
 
@@ -97,6 +98,7 @@ public class AutoApiBehaviour : MonoBehaviour
 	private bool _pendingFillWaitingForItems = false;
 	private bool _pendingFillTargetStorage = false;
 	private bool _pendingFillExcludeInscriptionScrolls = false;
+	private bool _pendingFillExcludeOfferingCoins = false;
     private bool _pendingFillAllowPartial = false;
     private float _pendingFillCountStableSince;
 	private bool _pendingFillCleaningExcluded = false;
@@ -154,7 +156,6 @@ public class AutoApiBehaviour : MonoBehaviour
 	private const float MAX_PENDING_TIMEOUT = 8f;
 	private const float MAX_PENDING_FILL_TIMEOUT = 12f;
 	private const int REQUIRED_CUBE_ITEMS = 9;
-	private const float MIN_SYNTH_ACTION_INTERVAL_SECONDS = 10f;
 	private float _lastSynthActionTime = -1000f;
 
 	private static bool _obfResolved;
@@ -195,58 +196,42 @@ public class AutoApiBehaviour : MonoBehaviour
 	}
 
 	private void OnDestroy()
-	{
-		if (_httpListener != null)
-		{
-			_isHttpServerRunning = false;
-			_httpListener.Stop();
-			_httpListener.Close();
-			AutoApiPlugin.Logger.LogInfo((object)">>> [TBH Auto API] HTTP 服务已安全关闭。");
-		}
-	}
+    {
+        if (_localApiServer == null) return;
+        _localApiServer.Dispose();
+        ApiDiscoveryFile.RemoveOwned(_apiDiscoveryPath, _localApiServer.InstanceId);
+        AutoApiPlugin.Logger.LogInfo((object)"[TBH Auto API] 本机接口已关闭。");
+    }
 
-	private void StartHttpServer()
-	{
-		try
-		{
-			_httpListener = new HttpListener();
-			_httpListener.Prefixes.Add("http://127.0.0.1:19090/api/");
-			_httpListener.Start();
-			_isHttpServerRunning = true;
-			AutoApiPlugin.Logger.LogInfo((object)">>> [TBH Auto API] 监听中: http://127.0.0.1:19090/api/ 等待 Java 客户端呼叫...");
-			Task.Run(delegate
-			{
-				ListenForRequests();
-			});
-		}
-		catch (Exception ex)
-		{
-			AutoApiPlugin.Logger.LogError((object)("HTTP 服务启动失败: " + ex.Message));
-		}
-	}
+    private void StartHttpServer()
+    {
+        try
+        {
+            _localApiServer = new LoopbackApiServer(HandleRequest, PREFERRED_API_PORT);
+            int processId = System.Environment.ProcessId;
+            AutoApiPlugin.BridgeSignature = "|game_pid=" + processId + "|instance_id=" + _localApiServer.InstanceId
+                + "|api_port=" + _localApiServer.Port;
+            _apiDiscoveryPath = ApiDiscoveryFile.Publish(processId, _localApiServer.Port, _localApiServer.InstanceId,
+                AutoApiPlugin.RuntimeHash, AutoApiPlugin.Version, AutoApiPlugin.ApiProtocol,
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData));
+            AutoApiPlugin.Logger.LogInfo((object)("[TBH Auto API] 监听中: http://127.0.0.1:" + _localApiServer.Port
+                + "/api/；发现文件=" + _apiDiscoveryPath));
+        }
+        catch (Exception ex)
+        {
+            _localApiServer?.Dispose();
+            AutoApiPlugin.Logger.LogError((object)("本机接口初始化失败：" + ex.Message));
+        }
+    }
 
-	private void ListenForRequests()
-	{
-		while (_isHttpServerRunning)
-		{
-			try
-			{
-				HttpListenerContext context = _httpListener.GetContext();
-				_ = Task.Run(() => HandleRequest(context));
-			}
-			catch
-			{
-				if (!_isHttpServerRunning) return;
-			}
-		}
-	}
-
-	private void HandleRequest(HttpListenerContext context)
+	[Il2CppInterop.Runtime.Attributes.HideFromIl2Cpp]
+	private LocalApiResponse HandleRequest(string requestPath)
 	{
 		bool flag = default(bool);
 		try
 		{
-				string text = context.Request.Url.AbsolutePath.ToLower();
+				string text = requestPath.ToLowerInvariant();
+                int statusCode = 200;
 				ManualLogSource logger = AutoApiPlugin.Logger;
 				BepInExInfoLogInterpolatedStringHandler val = new BepInExInfoLogInterpolatedStringHandler(15, 1, out flag);
 				if (flag)
@@ -263,6 +248,9 @@ public class AutoApiBehaviour : MonoBehaviour
 					break;
 				case "/api/chest/blue":
 					text2 = DispatchToMainThreadAndWait("chest_blue");
+					break;
+				case "/api/chest/catalog":
+					text2 = DispatchToMainThreadAndWait("chest_catalog");
 					break;
 				case "/api/store/sort":
 					text2 = DispatchToMainThreadAndWait("store_sort");
@@ -309,11 +297,20 @@ public class AutoApiBehaviour : MonoBehaviour
                         text2 = int.TryParse(text.Replace("/api/automation/pacing/", ""), out int seconds)
                             ? InventoryOperationGate.ConfigurePacing(seconds) : "FAILED";
                     }
+                    else if (text.StartsWith("/api/automation/click_pacing/"))
+                    {
+                        text2 = int.TryParse(text.Replace("/api/automation/click_pacing/", ""), out int clickSeconds)
+                            ? InventoryOperationGate.ConfigureClickPacing(clickSeconds) : "FAILED";
+                    }
                     else if (text.StartsWith("/api/events/ack/"))
 					{
 						string countText = text.Replace("/api/events/ack/", "");
 						text2 = int.TryParse(countText, out int count) && RuntimeMonitor.AcknowledgeEvents(count)
 							? "SUCCESS" : "FAILED";
+					}
+					else if (text.StartsWith("/api/chest/open/"))
+					{
+						text2 = DispatchToMainThreadAndWait("chest_open_" + text.Replace("/api/chest/open/", ""));
 					}
 					else if (text.StartsWith("/api/store/page/"))
 					{
@@ -366,6 +363,10 @@ public class AutoApiBehaviour : MonoBehaviour
 							{
 								text2 = DispatchToMainThreadAndWait("synth_autofill_" + text3.Replace("autofill/", ""));
 							}
+							else if (text3.StartsWith("purge_excluded/"))
+							{
+								text2 = DispatchToMainThreadAndWait("synth_purge_excluded_" + text3.Replace("purge_excluded/", ""));
+							}
 							else if (text3.StartsWith("execute/"))
 							{
 								text2 = DispatchToMainThreadAndWait("synth_execute_" + text3.Replace("execute/", ""));
@@ -376,38 +377,30 @@ public class AutoApiBehaviour : MonoBehaviour
 							}
 							else
 							{
-								context.Response.StatusCode = 404;
+								statusCode = 404;
 							}
 							break;
 						}
 					}
 					else
 					{
-						context.Response.StatusCode = 404;
+						statusCode = 404;
 					}
 					break;
 				}
-				if (context.Response.StatusCode != 404)
-				{
-					bool flag2 = text2 == "SUCCESS" || text2 == "FULL" || text2 == "HAS_SPACE" || text2 == "EMPTY" || text2 == "READY"
-						|| text2.StartsWith("SUCCESS|", StringComparison.Ordinal) || text2.StartsWith("BUSY|", StringComparison.Ordinal)
-                        || text2.StartsWith("{\"status\":\"SUCCESS\"", StringComparison.Ordinal) || text2.StartsWith("E\t", StringComparison.Ordinal);
-					context.Response.StatusCode = (flag2 ? 200 : 400);
-					byte[] bytes = Encoding.UTF8.GetBytes(text2);
-					context.Response.ContentLength64 = bytes.Length;
-					using Stream stream = context.Response.OutputStream;
-					stream.Write(bytes, 0, bytes.Length);
-				}
-				else
-				{
-					context.Response.Close();
-				}
-			}
-			catch
-			{
-				try { context.Response.Close(); } catch { }
-			}
-	}
+                if (statusCode == 404) return new LocalApiResponse(404, "NOT_FOUND");
+                bool success = text2 == "SUCCESS" || text2 == "FULL" || text2 == "HAS_SPACE" || text2 == "EMPTY" || text2 == "READY"
+                    || text2.StartsWith("SUCCESS|", StringComparison.Ordinal) || text2.StartsWith("BUSY|", StringComparison.Ordinal)
+                    || text2.StartsWith("CORROSION_READY|", StringComparison.Ordinal) || text2.StartsWith("CORROSION_EMPTY|", StringComparison.Ordinal)
+                    || text2.StartsWith("{\"status\":\"SUCCESS\"", StringComparison.Ordinal) || text2.StartsWith("E\t", StringComparison.Ordinal);
+                return new LocalApiResponse(success ? 200 : 400, text2);
+            }
+            catch (Exception ex)
+            {
+                AutoApiPlugin.Logger.LogWarning((object)("[本机接口] 请求处理失败：" + ex.Message));
+                return new LocalApiResponse(500, "FAILED|request_error");
+            }
+    }
 
 	private string DispatchToMainThreadAndWait(string cmd)
 	{
@@ -416,7 +409,8 @@ public class AutoApiBehaviour : MonoBehaviour
 			Command = cmd
 		};
 		_apiTaskQueue.Enqueue(apiTask);
-        int timeout = cmd.StartsWith("synth_autofill_") || cmd == "synth_purge_inscription" ? 55 : 25;
+        int timeout = cmd.StartsWith("synth_autofill_") || cmd == "synth_purge_inscription"
+            || cmd.StartsWith("synth_purge_excluded_") ? 55 : 25;
         if (!apiTask.ResultTcs.Task.Wait(TimeSpan.FromSeconds(timeout)))
             return apiTask.CancelBeforeStart() ? "EXPIRED|NOT_EXECUTED" : "PENDING|RESULT_UNKNOWN";
 		return apiTask.ResultTcs.Task.Result;
@@ -524,7 +518,7 @@ public class AutoApiBehaviour : MonoBehaviour
 				}
 				else
 				{
-					_pendingOperationTime = Time.unscaledTime + 2f;
+					_pendingOperationTime = Time.unscaledTime + InventoryOperationGate.ClickGapSeconds;
 				}
 			}
 		}
@@ -571,14 +565,15 @@ public class AutoApiBehaviour : MonoBehaviour
 		{
 			if (_pendingFillCleaningExcluded)
 			{
-				ProcessPendingExcludedScrollCleanup();
+				ProcessPendingExcludedMaterialCleanup();
 			}
 			else if (Time.unscaledTime - _pendingFillStartTime > MAX_PENDING_FILL_TIMEOUT)
 			{
 				UI_Cube timedOutCube = Object.FindObjectOfType<UI_Cube>(true);
 				int filledCount = ((Object)(object)timedOutCube != (Object)null) ? CountCubeItems(timedOutCube) : 0;
-				if (_pendingFillWaitingForItems && _pendingFillExcludeInscriptionScrolls
-					&& QueueExcludedScrollCleanup(timedOutCube))
+				if (_pendingFillWaitingForItems
+					&& (_pendingFillExcludeInscriptionScrolls || _pendingFillExcludeOfferingCoins)
+					&& QueueExcludedMaterialCleanup(timedOutCube))
 				{
 					// Keep this request pending while each excluded scroll is returned safely.
 				}
@@ -639,14 +634,16 @@ public class AutoApiBehaviour : MonoBehaviour
                             }
                             if (Time.unscaledTime - _pendingFillCountStableSince >= 2f)
                             {
-                                if (!_pendingFillExcludeInscriptionScrolls || !QueueExcludedScrollCleanup(val2))
+                                if ((!_pendingFillExcludeInscriptionScrolls && !_pendingFillExcludeOfferingCoins)
+                                    || !QueueExcludedMaterialCleanup(val2))
                                     CompletePendingFill(CubeBatchPolicy.CorrosionFillStatus(filledCount));
                             }
                             else _pendingFillTime = Time.unscaledTime + 0.5f;
                         }
 						else if (filledCount >= REQUIRED_CUBE_ITEMS)
 						{
-							if (_pendingFillExcludeInscriptionScrolls && QueueExcludedScrollCleanup(val2))
+							if ((_pendingFillExcludeInscriptionScrolls || _pendingFillExcludeOfferingCoins)
+								&& QueueExcludedMaterialCleanup(val2))
 							{
 								// The remaining eligible items will be supplemented from the other category.
 							}
@@ -696,6 +693,14 @@ public class AutoApiBehaviour : MonoBehaviour
 			else if (result3.Command == "chest_blue")
 			{
 				result4 = ExecuteClickChest("blue");
+			}
+			else if (result3.Command == "chest_catalog")
+			{
+				result4 = ReadChestCatalog();
+			}
+			else if (result3.Command.StartsWith("chest_open_"))
+			{
+				result4 = ExecuteClickChest(result3.Command.Substring("chest_open_".Length));
 			}
 			else if (result3.Command == "store_sort")
 			{
@@ -792,12 +797,36 @@ public class AutoApiBehaviour : MonoBehaviour
                         _pendingFillTask = result3;
                         _pendingFillAllowPartial = true;
                         _pendingFillExcludeInscriptionScrolls = true;
-                        if (QueueExcludedScrollCleanup(cube)) flag = true;
+                        _pendingFillExcludeOfferingCoins = false;
+                        if (QueueExcludedMaterialCleanup(cube)) flag = true;
                         else CompletePendingFill(CubeBatchPolicy.CorrosionFillStatus(CountCubeItems(cube)));
                         flag = true;
                     }
                 }
             }
+			else if (result3.Command.StartsWith("synth_purge_excluded_"))
+			{
+				string[] exclusions = result3.Command.Replace("synth_purge_excluded_", "").Split('/');
+				bool excludeScrolls = exclusions.Length > 0 && bool.TryParse(exclusions[0], out bool scrollSetting) && scrollSetting;
+				bool excludeCoins = exclusions.Length > 1 && bool.TryParse(exclusions[1], out bool coinSetting) && coinSetting;
+				UI_Cube cube = Object.FindObjectOfType<UI_Cube>(true);
+				if (cube == null || RuntimeMonitor.IsCorrosionActionPending() || SynthesisActionMonitor.IsPending()) result4 = "ACTION_PENDING";
+				else
+				{
+					var selected = cube.m_mainRecipeToggleBtn != null ? CorrosionRecipeSelector.Find(cube, cube.m_mainRecipeToggleBtn) : null;
+					if (selected == null || !selected.m_isSelected) result4 = "WRONG_OPERATION";
+					else
+					{
+						_pendingFillTask = result3;
+						_pendingFillAllowPartial = true;
+						_pendingFillExcludeInscriptionScrolls = excludeScrolls;
+						_pendingFillExcludeOfferingCoins = excludeCoins;
+						if (QueueExcludedMaterialCleanup(cube)) flag = true;
+						else CompletePendingFill(CubeBatchPolicy.CorrosionFillStatus(CountCubeItems(cube)));
+						flag = true;
+					}
+				}
+			}
 			else if (result3.Command.StartsWith("synth_type_"))
 			{
 				if (int.TryParse(result3.Command.Replace("synth_type_", ""), out var result6))
@@ -822,7 +851,7 @@ public class AutoApiBehaviour : MonoBehaviour
 				{
 					_pendingOperationTask = result3;
 					_pendingOperationName = operation;
-					_pendingOperationTime = Time.unscaledTime + 2f;
+					_pendingOperationTime = Time.unscaledTime + InventoryOperationGate.ClickGapSeconds;
 					_pendingOperationStartTime = Time.unscaledTime;
 					flag = true;
 				}
@@ -833,7 +862,12 @@ public class AutoApiBehaviour : MonoBehaviour
 				if (int.TryParse(executeArgs[0], out var result7))
 				{
 					bool excludeScrolls = executeArgs.Length > 1 && bool.TryParse(executeArgs[1], out bool parsedExclude) && parsedExclude;
-					result4 = ExecuteSynthAction(result7, excludeScrolls, executeArgs.Length > 2 ? executeArgs[2] : "");
+					bool hasOfferingSetting = executeArgs.Length > 3;
+					bool excludeOfferingCoins = hasOfferingSetting
+						&& bool.TryParse(executeArgs[2], out bool parsedOfferingExclude) && parsedOfferingExclude;
+					string expectedOperation = executeArgs.Length > (hasOfferingSetting ? 3 : 2)
+						? executeArgs[hasOfferingSetting ? 3 : 2] : "";
+					result4 = ExecuteSynthAction(result7, excludeScrolls, excludeOfferingCoins, expectedOperation);
 				}
 			}
 			else if (result3.Command.StartsWith("synth_validate_"))
@@ -866,7 +900,9 @@ public class AutoApiBehaviour : MonoBehaviour
 				string[] fillArgs = result3.Command.Replace("synth_autofill_", "").Split('/');
 				bool flag2 = fillArgs.Length > 0 && bool.TryParse(fillArgs[0], out bool parsedStorage) && parsedStorage;
 				bool excludeInscriptionScrolls = fillArgs.Length > 1 && bool.TryParse(fillArgs[1], out bool parsedScrollSetting) && parsedScrollSetting;
-                bool allowPartial = fillArgs.Length > 2 && fillArgs[2] == "corrosion";
+				bool allowPartial = fillArgs.Length > 2 && fillArgs[fillArgs.Length - 1] == "corrosion";
+				bool excludeOfferingCoins = allowPartial && fillArgs.Length > 3
+					&& bool.TryParse(fillArgs[2], out bool parsedCoinSetting) && parsedCoinSetting;
 				UI_Cube val3 = Object.FindObjectOfType<UI_Cube>(true);
 				if (!((Object)(object)val3 != (Object)null) || !((Component)val3).gameObject.activeInHierarchy)
 				{
@@ -891,6 +927,7 @@ public class AutoApiBehaviour : MonoBehaviour
 						_pendingFillWaitingForItems = false;
 						_pendingFillTargetStorage = flag2;
 						_pendingFillExcludeInscriptionScrolls = excludeInscriptionScrolls;
+						_pendingFillExcludeOfferingCoins = excludeOfferingCoins;
 						_pendingFillTime = Time.unscaledTime + 0.1f;
 						_pendingFillStartTime = Time.unscaledTime;
 						_lastPendingFillCount = -1;
@@ -903,6 +940,7 @@ public class AutoApiBehaviour : MonoBehaviour
 						_pendingFillWaitingForItems = true;
 						_pendingFillTargetStorage = flag2;
 						_pendingFillExcludeInscriptionScrolls = excludeInscriptionScrolls;
+						_pendingFillExcludeOfferingCoins = excludeOfferingCoins;
 						_pendingFillStartTime = Time.unscaledTime;
 						_lastPendingFillCount = -1;
 						BeginPendingAutoFill(val3);
@@ -2502,6 +2540,7 @@ public class AutoApiBehaviour : MonoBehaviour
 		_pendingFillWaitingForStorage = false;
 		_pendingFillWaitingForItems = false;
 		_pendingFillExcludeInscriptionScrolls = false;
+		_pendingFillExcludeOfferingCoins = false;
         _pendingFillAllowPartial = false;
         _pendingFillCountStableSince = 0f;
 		_pendingFillCleaningExcluded = false;
@@ -2518,9 +2557,10 @@ public class AutoApiBehaviour : MonoBehaviour
 		}
 	}
 
-	private bool QueueExcludedScrollCleanup(UI_Cube cube)
+	private bool QueueExcludedMaterialCleanup(UI_Cube cube)
 	{
-		if (!_pendingFillExcludeInscriptionScrolls || (Object)(object)cube == (Object)null
+		if ((!_pendingFillExcludeInscriptionScrolls && !_pendingFillExcludeOfferingCoins)
+			|| (Object)(object)cube == (Object)null
 			|| (Object)(object)cube.m_cubeSlotSetter == (Object)null)
 		{
 			return false;
@@ -2535,9 +2575,26 @@ public class AutoApiBehaviour : MonoBehaviour
 			try
 			{
 				int key = CubeItemKey(slot._cubeData);
-				if (key > 0 && IsProtectedCorrosionMaterial(slot._cubeData))
+				string itemName = "";
+				string exclusion = "";
+				bool excluded = key > 0 && IsExcludedCorrosionMaterial(slot._cubeData,
+					_pendingFillExcludeInscriptionScrolls, _pendingFillExcludeOfferingCoins,
+					out itemName, out exclusion);
+				if (excluded)
 				{
 					_pendingExcludedSlotIndices.Add(i);
+					AutoApiPlugin.Logger.LogInfo((object)("[腐蚀排除项] 识别" + exclusion + "：" + itemName
+						+ "，ItemKey=" + key.ToString(CultureInfo.InvariantCulture) + "，槽位=" + i.ToString(CultureInfo.InvariantCulture) + "。"));
+				}
+				else if (key > 0 && !string.IsNullOrWhiteSpace(itemName))
+				{
+					AutoApiPlugin.Logger.LogInfo((object)("[腐蚀筛选] 保留道具：" + itemName
+						+ "，ItemKey=" + key.ToString(CultureInfo.InvariantCulture) + "，槽位=" + i.ToString(CultureInfo.InvariantCulture) + "。"));
+				}
+				else if (key > 0)
+				{
+					AutoApiPlugin.Logger.LogWarning((object)("[腐蚀筛选] ItemInfo 暂无 ItemKey="
+						+ key.ToString(CultureInfo.InvariantCulture) + " 的名称；物品保留待品质安全锁检查。"));
 				}
 			}
 			catch
@@ -2549,17 +2606,19 @@ public class AutoApiBehaviour : MonoBehaviour
 		_pendingExcludedSlotCursor = 0;
 		_pendingExcludedNextClickTime = Time.unscaledTime;
 		_pendingExcludedSettleTime = 0f;
-		AutoApiPlugin.Logger.LogInfo((object)("[腐蚀排除项] 检出 " + _pendingExcludedSlotIndices.Count
-			+ " 个铭文/铭刻材料；逐个退回，间隔2秒，保留其他物品。"));
+        AutoApiPlugin.Logger.LogInfo((object)("[腐蚀排除项] 检出 " + _pendingExcludedSlotIndices.Count
+			+ " 个指定排除物品；逐个退回，间隔" + InventoryOperationGate.ClickGapSeconds + "秒，保留其他道具和材料。"));
 		return true;
 	}
 
-	private void ProcessPendingExcludedScrollCleanup()
+	private void ProcessPendingExcludedMaterialCleanup()
     {
         if (Time.unscaledTime < _pendingExcludedNextClickTime) return;
         UI_Cube cube = Object.FindObjectOfType<UI_Cube>(true);
         if (cube == null || cube.m_cubeSlotSetter == null) { CompletePendingFill("EXCLUSION_NOT_READY"); return; }
-        if (TryFindExcludedInscriptionScroll(cube, out int slotIndex, out int itemKey))
+        if (TryFindExcludedCorrosionMaterial(cube, _pendingFillExcludeInscriptionScrolls,
+			_pendingFillExcludeOfferingCoins, out int slotIndex, out int itemKey,
+			out string itemName, out string exclusion))
         {
             var slots = cube.m_cubeSlotSetter.m_cubeInventorySlots;
             var slot = slots != null && slotIndex >= 0 && slotIndex < slots.Count ? slots[slotIndex] : null;
@@ -2569,8 +2628,9 @@ public class AutoApiBehaviour : MonoBehaviour
             {
                 ReturnProtectedCubeItem(slot);
                 _pendingExcludedSlotCursor++;
-                _pendingExcludedNextClickTime = _pendingExcludedSettleTime = Time.unscaledTime + 2f;
-                AutoApiPlugin.Logger.LogInfo((object)("[腐蚀排除项] 已请求退回铭文/铭刻材料，当前槽位=" + slotIndex + "；其他物品保留。"));
+                _pendingExcludedNextClickTime = _pendingExcludedSettleTime = Time.unscaledTime + InventoryOperationGate.ClickGapSeconds;
+				AutoApiPlugin.Logger.LogInfo((object)("[腐蚀排除项] 已请求退回" + exclusion + "：" + itemName + "，当前槽位="
+					+ slotIndex.ToString(CultureInfo.InvariantCulture) + "；其他物品保留。"));
             }
             catch (Exception ex)
             {
@@ -2581,7 +2641,7 @@ public class AutoApiBehaviour : MonoBehaviour
         }
         if (Time.unscaledTime < _pendingExcludedSettleTime) return;
         int count = CountCubeItems(cube);
-        AutoApiPlugin.Logger.LogInfo((object)("[腐蚀排除项] 已确认全部剔除，保留" + count + "件合格物品继续腐蚀。"));
+        AutoApiPlugin.Logger.LogInfo((object)("[腐蚀排除项] 已确认卷轴和纪念币均已处理，保留" + count + "件其他物品继续腐蚀。"));
         CompletePendingFill(_pendingFillAllowPartial ? CubeBatchPolicy.CorrosionFillStatus(count) : "NOT_ENOUGH_" + count);
     }
 
@@ -2602,7 +2662,7 @@ public class AutoApiBehaviour : MonoBehaviour
 
     private static bool IsMutatingUiCommand(string command)
     {
-        return command.StartsWith("chest_") || command.StartsWith("plague_")
+        return (command.StartsWith("chest_") && command != "chest_catalog") || command.StartsWith("plague_")
             || (command.StartsWith("store_") && command != "store_check_full")
             || (command.StartsWith("synth_") && command != "synth_current_operation"
                 && !command.StartsWith("synth_validate_"));
@@ -2721,7 +2781,8 @@ public class AutoApiBehaviour : MonoBehaviour
 		return grade >= 0 && grade < labels.Length ? labels[grade] + " (" + grade + ")" : "未知 (" + grade + ")";
 	}
 
-	private string ExecuteSynthAction(int maxGrade, bool excludeInscriptionScrolls, string expectedOperation)
+	private string ExecuteSynthAction(int maxGrade, bool excludeInscriptionScrolls,
+		bool excludeOfferingCoins, string expectedOperation)
 	{
         if (RuntimeMonitor.IsCorrosionActionPending() || SynthesisActionMonitor.IsPending()) return "ACTION_PENDING";
         string inventoryReadiness = InventoryOperationGate.Readiness();
@@ -2748,11 +2809,13 @@ public class AutoApiBehaviour : MonoBehaviour
         var operationButton = val.m_mainRecipeToggleBtn != null
             ? CorrosionRecipeSelector.Find(val, val.m_mainRecipeToggleBtn, expectedOperation) : null;
         if (operationButton == null || !operationButton.m_isSelected) return "WRONG_OPERATION";
-		if (excludeInscriptionScrolls && TryFindExcludedInscriptionScroll(val, out int excludedSlot, out int excludedItemKey))
+		if (expectedOperation == "corrosion"
+			&& TryFindExcludedCorrosionMaterial(val, excludeInscriptionScrolls, excludeOfferingCoins,
+				out int excludedSlot, out int excludedItemKey, out string excludedName, out string exclusion))
 		{
-			AutoApiPlugin.Logger.LogWarning((object)("[腐蚀排除项] 最终执行校验发现铭文卷轴，槽位="
+			AutoApiPlugin.Logger.LogWarning((object)("[腐蚀排除项] 最终执行校验发现" + exclusion + "：" + excludedName + "，槽位="
 				+ excludedSlot.ToString(CultureInfo.InvariantCulture) + "，ItemKey="
-				+ excludedItemKey.ToString(CultureInfo.InvariantCulture) + "；先剔除后继续当前批次。"));
+				+ excludedItemKey.ToString(CultureInfo.InvariantCulture) + "；先退回后继续当前批次。"));
 			return "NEEDS_EXCLUSION";
 		}
 		bool flag = default(bool);
@@ -2790,9 +2853,10 @@ public class AutoApiBehaviour : MonoBehaviour
             string permission = InventoryOperationGate.TryBeginHelperAction();
             if (permission != "READY") return permission;
 			float secondsSinceLastAction = Time.unscaledTime - _lastSynthActionTime;
-			if (secondsSinceLastAction < MIN_SYNTH_ACTION_INTERVAL_SECONDS)
+			float requiredGap = InventoryOperationGate.ClickGapSeconds;
+			if (secondsSinceLastAction < requiredGap)
 			{
-				AutoApiPlugin.Logger.LogWarning((object)("[腐蚀节流] 距上次魔方执行仅 " + secondsSinceLastAction.ToString("0.0") + " 秒；需要至少 " + MIN_SYNTH_ACTION_INTERVAL_SECONDS + " 秒，已拒绝重复请求。"));
+				AutoApiPlugin.Logger.LogWarning((object)("[腐蚀节流] 距上次魔方执行仅 " + secondsSinceLastAction.ToString("0.0") + " 秒；需要至少 " + requiredGap + " 秒，已拒绝重复请求。"));
 				return "RATE_LIMITED";
 			}
 			_lastSynthActionTime = Time.unscaledTime;
@@ -2808,10 +2872,13 @@ public class AutoApiBehaviour : MonoBehaviour
 		return "FAILED";
 	}
 
-	private static bool TryFindExcludedInscriptionScroll(UI_Cube cube, out int slotIndex, out int itemKey)
+	private static bool TryFindExcludedCorrosionMaterial(UI_Cube cube, bool excludeInscriptionScrolls,
+		bool excludeOfferingCoins, out int slotIndex, out int itemKey, out string itemName, out string exclusion)
 	{
 		slotIndex = -1;
 		itemKey = 0;
+		itemName = "";
+		exclusion = "";
 		CubeSlotSetter setter = cube != null ? cube.m_cubeSlotSetter : null;
 		Il2CppSystem.Collections.Generic.List<CubeInventorySlot> slots = setter != null ? setter.m_cubeInventorySlots : null;
 		if (slots == null) return false;
@@ -2822,33 +2889,28 @@ public class AutoApiBehaviour : MonoBehaviour
 			int key;
 			try { key = CubeItemKey(slot._cubeData); }
 			catch { continue; }
-			if (key > 0 && IsProtectedCorrosionMaterial(slot._cubeData))
+			if (key > 0 && IsExcludedCorrosionMaterial(slot._cubeData,
+				excludeInscriptionScrolls, excludeOfferingCoins, out string foundName, out string foundExclusion))
 			{
 				slotIndex = i;
 				itemKey = key;
+				itemName = foundName;
+				exclusion = foundExclusion;
 				return true;
 			}
 		}
 		return false;
 	}
 
-    private static bool IsProtectedCorrosionMaterial(CubeInData data)
+    private static bool IsExcludedCorrosionMaterial(CubeInData data, bool excludeInscriptionScrolls,
+		bool excludeOfferingCoins, out string itemName, out string exclusion)
     {
-        int itemKey = CubeItemKey(data);
-        if (RuntimeMonitor.IsInscriptionScrollItemKey(itemKey)) return true;
-        try
-        {
-            CubeItemData item = (CubeItemData)_pCubeItemData.GetValue(data);
-            var caches = wh.vc.bglb;
-            if (caches != null && caches.TryGetValue((ulong)item.ItemUniqueId, out var cache)
-                && cache != null && cache.bgjt != null)
-            {
-                EMaterialType subtype = cache.bgjt.bila;
-                return subtype == EMaterialType.INSCRIPTION || subtype == EMaterialType.ENGRAVING;
-            }
-        }
-        catch { }
-        return false;
+        itemName = "";
+		exclusion = "";
+		if (data == null) return false;
+		int itemKey = CubeItemKey(data);
+		return RuntimeMonitor.IsExcludedCorrosionItemKey(itemKey, excludeInscriptionScrolls,
+			excludeOfferingCoins, out itemName, out exclusion);
     }
 
     private void EnsureGradeMap()
@@ -2857,10 +2919,7 @@ public class AutoApiBehaviour : MonoBehaviour
 		//IL_0033: Expected O, but got Unknown
 		//IL_00b1: Unknown result type (might be due to invalid IL or missing references)
 		//IL_00bb: Expected I4, but got Unknown
-		if (_gradeByItemKey != null)
-		{
-			return;
-		}
+		int previousCount = _gradeByItemKey != null ? _gradeByItemKey.Count : 0;
 		System.Collections.Generic.List<ItemInfoData> val = null;
 		try
 		{
@@ -2880,10 +2939,11 @@ public class AutoApiBehaviour : MonoBehaviour
 		}
 		if (val == null || val.Count == 0)
 		{
-			AutoApiPlugin.Logger.LogWarning((object)"[安全锁] 物品品质映射为空，未知物品仍会被拦截。");
+			if (_gradeByItemKey == null || _gradeByItemKey.Count == 0)
+				AutoApiPlugin.Logger.LogWarning((object)"[安全锁] 物品品质映射为空，未知物品仍会被拦截。");
 			return;
 		}
-		_gradeByItemKey = new System.Collections.Generic.Dictionary<int, int>();
+		if (_gradeByItemKey == null) _gradeByItemKey = new System.Collections.Generic.Dictionary<int, int>();
 		for (int i = 0; i < val.Count; i++)
 		{
 			if (val[i] != null)
@@ -2891,7 +2951,8 @@ public class AutoApiBehaviour : MonoBehaviour
 				_gradeByItemKey[val[i].ItemKey] = (int)val[i].GRADE;
 			}
 		}
-		AutoApiPlugin.Logger.LogInfo((object)("[安全锁] 已建立 " + _gradeByItemKey.Count + " 个物品品质映射。"));
+		if (_gradeByItemKey.Count > previousCount)
+			AutoApiPlugin.Logger.LogInfo((object)("[安全锁] 品质映射已补充：" + previousCount + " -> " + _gradeByItemKey.Count + " 个 ItemKey。"));
 	}
 
 	private bool SlotsWithinGradeLimit(UI_Cube cube, int limitGrade, out string offender, out int itemCount)
@@ -2905,6 +2966,7 @@ public class AutoApiBehaviour : MonoBehaviour
 			return true;
 		}
 		EnsureGradeMap();
+		bool refreshedForUnknownKey = false;
 		for (int i = 0; i < val.Count; i++)
 		{
 			CubeInventorySlot val2 = val[i];
@@ -2926,12 +2988,30 @@ public class AutoApiBehaviour : MonoBehaviour
 				itemCount++;
 				if (_gradeByItemKey == null || !_gradeByItemKey.TryGetValue(num, out var value))
 				{
-					offender = $"未知物品 (ID: {num})";
+					if (!refreshedForUnknownKey)
+					{
+						EnsureGradeMap();
+						refreshedForUnknownKey = true;
+					}
+					if (_gradeByItemKey != null && _gradeByItemKey.TryGetValue(num, out value))
+					{
+						if (value > limitGrade)
+						{
+							string itemName = RuntimeMonitor.ResolveItemNameByKey(num);
+							offender = $"{(string.IsNullOrWhiteSpace(itemName) ? "未知物品" : itemName)} (ID: {num}) [品质 {value} > 设定上限 {limitGrade}]";
+							return false;
+						}
+						continue;
+					}
+					string unresolvedName = RuntimeMonitor.ResolveItemNameByKey(num);
+					offender = string.IsNullOrWhiteSpace(unresolvedName)
+						? $"未知物品 (ID: {num})" : $"{unresolvedName} (ID: {num}，品质映射缺失)";
 					return false;
 				}
 				if (value > limitGrade)
 				{
-					offender = $"ID {num} [品质 {value} > 设定上限 {limitGrade}]";
+					string itemName = RuntimeMonitor.ResolveItemNameByKey(num);
+					offender = $"{(string.IsNullOrWhiteSpace(itemName) ? "未知物品" : itemName)} (ID: {num}) [品质 {value} > 设定上限 {limitGrade}]";
 					return false;
 				}
 			}
@@ -3179,34 +3259,57 @@ public class AutoApiBehaviour : MonoBehaviour
 		return false;
 	}
 
-	private string ExecuteClickChest(string expectedType)
-	{
+	private static string ChestKind(StageBox box)
+    {
+        return ChestSelectionPolicy.Kind((int)box.m_boxType, box.m_contentType == EContentType.PLAGUE);
+    }
+
+    private static bool ChestHasItems(StageBox box)
+    {
+        if (box == null || !box.gameObject.activeInHierarchy || box.m_boxButton == null
+            || !box.m_boxButton.gameObject.activeInHierarchy) return false;
+        string counter = box.countText != null ? box.countText.text : "";
+        counter = System.Text.RegularExpressions.Regex.Replace(counter ?? "", "<[^>]*>", "");
+        var number = System.Text.RegularExpressions.Regex.Match(counter, @"\d+");
+        return !number.Success || !int.TryParse(number.Value, out int count) || count > 0;
+    }
+
+    private static string ReadChestCatalog()
+    {
+        var kinds = new System.Collections.Generic.SortedSet<string>(System.StringComparer.Ordinal);
+        foreach (StageBox box in Object.FindObjectsOfType<StageBox>())
+            if (ChestHasItems(box) && !string.IsNullOrEmpty(ChestKind(box))) kinds.Add(ChestKind(box));
+        return "SUCCESS|kinds=" + string.Join(",", kinds);
+    }
+
+    private string ExecuteClickChest(string expectedType)
+    {
         if (RuntimeMonitor.IsCorrosionActionPending() || SynthesisActionMonitor.IsPending()) return "ACTION_PENDING";
-		bool result = false;
-		Il2CppArrayBase<Button> val = Object.FindObjectsOfType<Button>();
-		foreach (Button item in val)
-		{
-			if (!((Object)(object)item != (Object)null) || !((Component)item).gameObject.activeInHierarchy || !(((Object)item).name == "InteractionButton"))
-			{
-				continue;
-			}
-			Transform parent = ((Component)item).transform.parent;
-			if ((Object)(object)parent != (Object)null && (Object)(object)parent.parent != (Object)null)
-			{
-				string name = ((Object)parent.parent).name;
-				if ((expectedType == "white" && name.Contains("ChestBubbleSlot_Normal") && !name.Contains("Boss")) || (expectedType == "blue" && name.Contains("ChestBubbleSlot_NormalBoss")))
-				{
-                    string permission = InventoryOperationGate.TryBeginHelperAction();
-                    if (permission != "READY") return permission;
-					ClickGameObject(((Component)item).gameObject, "拾取宝箱: " + expectedType);
-					result = true;
-                    break;
-				}
-			}
-		}
-		if (result) InventoryOperationGate.MarkUiInventoryChange();
-		return result ? "SUCCESS" : "EMPTY";
-	}
+        foreach (StageBox box in Object.FindObjectsOfType<StageBox>())
+        {
+            if (!ChestHasItems(box) || !ChestSelectionPolicy.Matches(expectedType, ChestKind(box))) continue;
+            MethodInfo handler = null;
+            foreach (MethodInfo method in typeof(StageBox).GetMethods(BindingFlags.Instance | BindingFlags.Public
+                | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            {
+                var parameters = method.GetParameters();
+                if (method.ReturnType != typeof(void) || parameters.Length != 1
+                    || parameters[0].ParameterType != typeof(PointerEventData.InputButton)) continue;
+                if (handler != null) return "FAILED|ambiguous_right_click_handler";
+                handler = method;
+            }
+            if (handler == null) return "FAILED|right_click_handler_missing";
+            string permission = InventoryOperationGate.TryBeginHelperAction();
+            if (permission != "READY") return permission;
+            handler.Invoke(box, new object[] { PointerEventData.InputButton.Right });
+            InventoryOperationGate.MarkUiInventoryChange();
+            string kind = ChestKind(box);
+            AutoApiPlugin.Logger.LogInfo((object)("[开箱] 已调用游戏右键批量开箱入口：" + kind
+                + "，BoxType=" + box.m_boxType + "，ContentType=" + box.m_contentType));
+            return "SUCCESS|kind=" + kind + "|mode=right";
+        }
+        return "EMPTY";
+    }
 
 	private void ClickGameObject(GameObject go, string name)
 	{

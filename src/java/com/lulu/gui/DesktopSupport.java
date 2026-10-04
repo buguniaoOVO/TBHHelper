@@ -34,6 +34,7 @@ public final class DesktopSupport {
     private final List<Image> icons;
     private TrayIcon trayIcon;
     private JPopupMenu trayMenu;
+    private Runnable notificationAction;
     private boolean closeDialogOpen;
 
     public interface TaskbarShell extends StdCallLibrary {
@@ -155,6 +156,33 @@ public final class DesktopSupport {
             return;
         }
         try {
+            ensureTrayIcon();
+            window.setVisible(false);
+            System.out.println(">>> [界面] 助手已最小化到托盘，点击托盘图标可恢复窗口。");
+        } catch (Exception ex) {
+            removeTrayIcon();
+            window.setVisible(true);
+            JOptionPane.showMessageDialog(window, I18n.tr("托盘图标创建失败：") + ex.getMessage(),
+                    I18n.tr("最小化失败"), JOptionPane.WARNING_MESSAGE);
+        }
+    }
+
+    public void showNotification(String title, String message, Runnable action) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> showNotification(title, message, action));
+            return;
+        }
+        if (!SystemTray.isSupported() || icons.isEmpty()) return;
+        try {
+            ensureTrayIcon();
+            notificationAction = action;
+            trayIcon.displayMessage(I18n.tr(title), I18n.tr(message), TrayIcon.MessageType.INFO);
+        } catch (Exception ex) {
+            System.err.println("[自动更新] 托盘提醒失败：" + ex.getMessage());
+        }
+    }
+
+    private void ensureTrayIcon() throws java.awt.AWTException {
             if (trayIcon == null) {
                 SystemTray tray = SystemTray.getSystemTray();
                 Dimension size = tray.getTrayIconSize();
@@ -167,6 +195,12 @@ public final class DesktopSupport {
                 }
                 trayIcon = new TrayIcon(image, I18n.tr("TBH助手 · 点击打开"));
                 trayIcon.setImageAutoSize(true);
+                trayIcon.addActionListener(event -> SwingUtilities.invokeLater(() -> {
+                    Runnable action = notificationAction;
+                    notificationAction = null;
+                    restoreWindow();
+                    if (action != null) action.run();
+                }));
                 trayIcon.addMouseListener(new java.awt.event.MouseAdapter() {
                     @Override
                     public void mousePressed(java.awt.event.MouseEvent event) {
@@ -180,14 +214,6 @@ public final class DesktopSupport {
                 });
                 tray.add(trayIcon);
             }
-            window.setVisible(false);
-            System.out.println(">>> [界面] 助手已最小化到托盘，点击托盘图标可恢复窗口。");
-        } catch (Exception ex) {
-            removeTrayIcon();
-            window.setVisible(true);
-            JOptionPane.showMessageDialog(window, I18n.tr("托盘图标创建失败：") + ex.getMessage(),
-                    I18n.tr("最小化失败"), JOptionPane.WARNING_MESSAGE);
-        }
     }
 
     /**
@@ -258,6 +284,7 @@ public final class DesktopSupport {
             SystemTray.getSystemTray().remove(trayIcon);
             trayIcon = null;
         }
+        notificationAction = null;
     }
 
     /** 选择能显示中文的字体，供 Swing 托盘菜单使用。 */

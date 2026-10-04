@@ -14,12 +14,23 @@ internal static class InventoryOperationGate
     private static int _lastErrorCode;
     private static string _lastError = "";
     private static DateTime _lastHelperActionAtUtc = DateTime.MinValue;
-    private static int _actionGapSeconds = 20;
+    private static int _clickGapSeconds = 5;
+
+    internal static int ClickGapSeconds
+    {
+        get { lock (Gate) return _clickGapSeconds; }
+    }
 
     internal static string ConfigurePacing(int seconds)
     {
-        lock (Gate) _actionGapSeconds = Math.Max(20, Math.Min(300, seconds));
-        return "SUCCESS|gap_seconds=" + _actionGapSeconds;
+        int gap = Math.Max(3, Math.Min(300, seconds));
+        return "SUCCESS|gap_seconds=" + gap;
+    }
+
+    internal static string ConfigureClickPacing(int seconds)
+    {
+        lock (Gate) _clickGapSeconds = Math.Max(1, Math.Min(300, seconds));
+        return "SUCCESS|click_gap_seconds=" + _clickGapSeconds;
     }
 
     internal static string TryBeginHelperAction()
@@ -42,7 +53,7 @@ internal static class InventoryOperationGate
                 + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(_lastError));
         if (PendingBoxRequests.Count > 0) return "BUSY|pending_boxes=" + PendingBoxRequests.Count;
         double settle = 15d - (DateTime.UtcNow - _lastChangedAtUtc).TotalSeconds;
-        double gap = _actionGapSeconds - (DateTime.UtcNow - _lastHelperActionAtUtc).TotalSeconds;
+        double gap = _clickGapSeconds - (DateTime.UtcNow - _lastHelperActionAtUtc).TotalSeconds;
         if (Math.Max(settle, gap) > 0)
             return "BUSY|wait_seconds=" + Math.Ceiling(Math.Max(settle, gap)).ToString(CultureInfo.InvariantCulture);
         return "READY";

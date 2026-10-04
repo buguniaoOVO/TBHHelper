@@ -52,6 +52,7 @@ internal static class RuntimeMonitor
 	private static string _lastNativeLogError = "";
 	private static long _lastNativeEventAt;
 	private static bool _itemInfoLoaded;
+	private static DateTime _nextMissingItemInfoRefreshUtc;
 	private static string _pendingExchangeBoxLabel = "";
 	private static DateTime _pendingExchangeBoxAtUtc;
 	private static bool _localizationTablesLoaded;
@@ -189,12 +190,17 @@ internal static class RuntimeMonitor
 		}
 	}
 
-	internal static bool IsInscriptionScrollItemKey(int itemKey)
+	internal static bool IsExcludedCorrosionItemKey(int itemKey, bool excludeInscriptionScrolls,
+		bool excludeOfferingCoins, out string itemName, out string exclusion)
 	{
-		EnsureItemInfo();
-		if (!ItemInfoByKey.TryGetValue(itemKey, out ItemInfoData info) || info == null) return false;
-        return info.ITEMTYPE == EItemType.MATERIAL
-            && CubeBatchPolicy.IsExcludedMaterialName(info.NameKey, ResolveItemName(info.NameKey));
+		itemName = "";
+		exclusion = "";
+		if (!excludeInscriptionScrolls && !excludeOfferingCoins) return false;
+		if (!TryGetItemInfoByKey(itemKey, out ItemInfoData info) || info == null) return false;
+		itemName = ResolveItemName(info.NameKey);
+		if (info.ITEMTYPE != EItemType.MATERIAL) return false;
+		return CubeBatchPolicy.TryGetCorrosionExclusion(itemName, excludeInscriptionScrolls,
+			excludeOfferingCoins, out exclusion);
 	}
 
 	internal static PollutionReading GetPollution()
@@ -364,7 +370,7 @@ internal static class RuntimeMonitor
 				+ "|plague_level=" + _currentPlagueLevel.ToString(CultureInfo.InvariantCulture)
 				+ "|pollution=" + pollutionValue
 				+ "|pollution_entry_min=" + entryMinimum
-				+ "|in_combat=" + _wasInCombat.ToString().ToLowerInvariant();
+				+ "|in_combat=" + _wasInCombat.ToString().ToLowerInvariant() + AutoApiPlugin.RuntimeSignature + AutoApiPlugin.BridgeSignature;
 		}
 	}
 
@@ -1032,9 +1038,9 @@ internal static class RuntimeMonitor
 		}
 	}
 
-	private static void EnsureItemInfo()
+	private static void EnsureItemInfo(bool refresh = false)
 	{
-		if (_itemInfoLoaded)
+		if (_itemInfoLoaded && !refresh)
 		{
 			return;
 		}
@@ -1046,16 +1052,34 @@ internal static class RuntimeMonitor
 		for (int i = 0; i < items.Count; i++)
 		{
 			ItemInfoData item = items[i];
-			if (item != null && !ItemInfoByKey.ContainsKey(item.ItemKey))
+			if (item != null)
 			{
 				ItemInfoByKey[item.ItemKey] = item;
 			}
-			if (item != null && !string.IsNullOrWhiteSpace(item.NameKey) && !ItemInfoByNameKey.ContainsKey(item.NameKey))
+			if (item != null && !string.IsNullOrWhiteSpace(item.NameKey))
 			{
 				ItemInfoByNameKey[item.NameKey] = item;
 			}
 		}
 		_itemInfoLoaded = ItemInfoByKey.Count > 0;
+	}
+
+	private static bool TryGetItemInfoByKey(int itemKey, out ItemInfoData info)
+	{
+		EnsureItemInfo();
+		if (ItemInfoByKey.TryGetValue(itemKey, out info) && info != null) return true;
+		if (DateTime.UtcNow >= _nextMissingItemInfoRefreshUtc)
+		{
+			_nextMissingItemInfoRefreshUtc = DateTime.UtcNow.AddSeconds(2);
+			EnsureItemInfo(refresh: true);
+		}
+		return ItemInfoByKey.TryGetValue(itemKey, out info) && info != null;
+	}
+
+	internal static string ResolveItemNameByKey(int itemKey)
+	{
+		return TryGetItemInfoByKey(itemKey, out ItemInfoData info) && info != null
+			? ResolveItemName(info.NameKey) : "";
 	}
 
 	internal static string ResolveItemName(string nameKey)

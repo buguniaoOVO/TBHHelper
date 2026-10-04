@@ -9,6 +9,7 @@ import com.lulu.logic.BotTask;
 public class StoreTask implements BotTask {
     private static long lastStoreTime;
     private static long lastMissingDataNoticeTime;
+    private static long nextStoreAttemptAt;
     private final int[][] pageCoordinates = new int[][]{
             Config.Store.FIRST_PAGE,
             Config.Store.SECOND_PAGE,
@@ -19,17 +20,24 @@ public class StoreTask implements BotTask {
             Config.Store.SEVENTH_PAGE
     };
 
+    public boolean isDue() { return System.currentTimeMillis() >= this.nextExecutionAt(); }
+
+    public long nextExecutionAt() {
+        long cooldownAt = lastStoreTime == 0L ? 0L : lastStoreTime + Config.Store.COOL_DOWN_STORE_MS;
+        return Math.max(cooldownAt, nextStoreAttemptAt);
+    }
+
     @Override
     public void execute() {
-        if (System.currentTimeMillis() - lastStoreTime < Config.Store.COOL_DOWN_STORE_MS) {
-            return;
-        }
+        long now = System.currentTimeMillis();
+        if (now < this.nextExecutionAt()) return;
+        nextStoreAttemptAt = now + 10000L;
         MonitorStatus status = DllApiClient.getMonitorStatus();
         if (!status.isReady() || status.warehousePages < 1) {
-            long now = System.currentTimeMillis();
-            if (now - lastMissingDataNoticeTime >= 60000L) {
+            long noticeNow = System.currentTimeMillis();
+            if (noticeNow - lastMissingDataNoticeTime >= 60000L) {
                 System.out.println("⚠️ [仓库] 仓库格数数据尚未就绪，整理任务暂缓。");
-                lastMissingDataNoticeTime = now;
+                lastMissingDataNoticeTime = noticeNow;
             }
             return;
         }

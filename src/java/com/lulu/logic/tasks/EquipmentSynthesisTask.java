@@ -5,6 +5,11 @@ import com.lulu.logic.BotTask;
 
 public class EquipmentSynthesisTask implements BotTask {
     private static long lastSynthesisTime;
+    public boolean isDue() { return Config.Synthesis.isAutoSynthesisEnabled && System.currentTimeMillis() >= this.nextExecutionAt(); }
+    public long nextExecutionAt() {
+        return Config.Synthesis.isAutoSynthesisEnabled
+                ? (lastSynthesisTime == 0L ? 0L : lastSynthesisTime + Math.max(60000L, Config.Synthesis.COOL_DOWN_SYNTHESIS_MS)) : Long.MAX_VALUE;
+    }
     @Override public void execute() throws InterruptedException {
         if (!Config.Synthesis.isAutoSynthesisEnabled) return;
         long now = System.currentTimeMillis();

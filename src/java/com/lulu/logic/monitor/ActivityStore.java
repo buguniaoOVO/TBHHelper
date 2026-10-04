@@ -260,26 +260,25 @@ public final class ActivityStore {
         }
         String[] lines = message.split("\\r?\\n");
         long now = System.currentTimeMillis();
+        List<Entry> additions = new ArrayList<Entry>();
         for (String line : lines) {
             if (!line.trim().isEmpty()) {
-                addLocked(new Entry("log", now, new String[]{line}));
+                Entry entry = new Entry("log", System.currentTimeMillis(), new String[]{line});
+                additions.add(entry);
+                addLocked(entry);
             }
         }
         if (pruneLocked(now)) {
             rewriteLocked();
         } else {
-            appendLastLines(lines, now);
+            appendLastLines(additions);
         }
     }
 
-    private static void appendLastLines(String[] lines, long time) {
+    private static void appendLastLines(List<Entry> entries) {
         try {
             StringBuilder out = new StringBuilder();
-            for (String line : lines) {
-                if (!line.trim().isEmpty()) {
-                    out.append(encode(new Entry("log", time, new String[]{line}))).append('\n');
-                }
-            }
+            for (Entry entry : entries) out.append(encode(entry)).append('\n');
             if (out.length() > 0) {
                 Files.write(FILE, out.toString().getBytes(StandardCharsets.UTF_8),
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
