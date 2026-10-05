@@ -33,17 +33,25 @@ import com.lulu.core.UpdateChecker;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef;
 import java.awt.BorderLayout;
+import java.awt.BasicStroke;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.RenderingHints;
+import java.awt.geom.Ellipse2D;
+import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -72,6 +80,7 @@ import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ImageIcon;
+import javax.swing.Icon;
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
@@ -98,6 +107,9 @@ import nu.pattern.OpenCV;
 
 public class MainGUI
 extends JFrame {
+    private static final String OFFICIAL_RELEASES_URL = "https://github.com/buguniaoOVO/TBHHelper/releases/latest";
+    private static final String OFFICIAL_QQ_GROUP_URL = "https://qm.qq.com/q/a4N90riKrY";
+    private static final String OPTIONAL_SPONSOR_URL = "https://afdian.com/a/Awan0v0?utm_source=copylink&utm_medium=link";
     private interface AutomationAction { void execute() throws InterruptedException; }
     private static final class AutomationJob {
         final String key;
@@ -464,6 +476,8 @@ extends JFrame {
         overview.add(quickLinks);
         overview.add(Box.createRigidArea(new Dimension(0, 14)));
         overview.add(this.createModulePanel("快速开始", this.createOverviewNote()));
+        overview.add(Box.createRigidArea(new Dimension(0, 14)));
+        overview.add(this.createDisclaimerPanel());
         this.addPage("overview", "概览", "运行概览", "游戏连接、任务状态与常用模块", overview);
 
         JPanel synthesis = this.createPageBody();
@@ -555,6 +569,158 @@ extends JFrame {
         body.setLayout(new BoxLayout(body, BoxLayout.Y_AXIS));
         body.setBorder(new EmptyBorder(10, 26, 24, 26));
         return body;
+    }
+
+    private JPanel createDisclaimerPanel() {
+        Color warningRed = new Color(190, 38, 48);
+        JPanel panel = ModernUI.card(new BorderLayout(0, 7));
+        panel.setBackground(new Color(255, 251, 251));
+        panel.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(238, 173, 177), 1, true),
+                new EmptyBorder(13, 17, 13, 17)));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JPanel header = new JPanel(new BorderLayout(12, 0));
+        header.setOpaque(false);
+        JLabel title = new JLabel("免责说明");
+        title.setForeground(warningRed);
+        title.setFont(scaledFont("Microsoft YaHei UI", Font.BOLD, 15));
+        header.add(title, BorderLayout.WEST);
+        header.add(this.createCommunityLinkBar(), BorderLayout.EAST);
+        panel.add(header, BorderLayout.NORTH);
+
+        JPanel details = new JPanel();
+        details.setOpaque(false);
+        details.setLayout(new BoxLayout(details, BoxLayout.Y_AXIS));
+        JLabel freeNotice = new JLabel("TBH助手免费下载和使用。Awan维护代码已在 GitHub 开源。");
+        freeNotice.setForeground(warningRed);
+        freeNotice.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 12));
+        freeNotice.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel downloadNotice = new JLabel("请从官方发布页下载；遇到收费售卖，请勿付款，并先核验版本。");
+        downloadNotice.setForeground(warningRed);
+        downloadNotice.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 12));
+        downloadNotice.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel riskNotice = new JLabel("自动化操作可能受到游戏或平台规则限制，请先阅读相关规则并自行评估账号风险。");
+        riskNotice.setForeground(warningRed);
+        riskNotice.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 12));
+        riskNotice.setAlignmentX(Component.LEFT_ALIGNMENT);
+        JLabel qqInfo = new JLabel("QQ群：123777707  ·  验证答案：挂机助手");
+        qqInfo.setForeground(warningRed);
+        qqInfo.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 12));
+        qqInfo.setAlignmentX(Component.LEFT_ALIGNMENT);
+        details.add(freeNotice);
+        details.add(Box.createRigidArea(new Dimension(0, 5)));
+        details.add(downloadNotice);
+        details.add(Box.createRigidArea(new Dimension(0, 5)));
+        details.add(riskNotice);
+        details.add(Box.createRigidArea(new Dimension(0, 5)));
+        details.add(qqInfo);
+        panel.add(details, BorderLayout.CENTER);
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, panel.getPreferredSize().height));
+        return panel;
+    }
+
+    private JPanel createCommunityLinkBar() {
+        JPanel bar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        bar.setOpaque(false);
+        JButton github = this.createCommunityButton("GitHub", new CommunityIcon(CommunityIcon.GITHUB,
+                new Color(35, 39, 47)), TEXT_COLOR, "查看 GitHub 官方发布页", OFFICIAL_RELEASES_URL);
+        JButton qq = this.createCommunityButton("QQ群", new CommunityIcon(CommunityIcon.QQ,
+                new Color(54, 91, 139)), TEXT_COLOR, "加入群聊【Awan的助手群】", OFFICIAL_QQ_GROUP_URL);
+        JButton sponsor = this.createCommunityButton("赞助", new CommunityIcon(CommunityIcon.HEART,
+                new Color(224, 75, 75)), new Color(115, 48, 48), "自愿赞助 Awan", OPTIONAL_SPONSOR_URL);
+        bar.add(github);
+        bar.add(qq);
+        bar.add(sponsor);
+        return bar;
+    }
+
+    private JButton createCommunityButton(String label, Icon icon, Color foreground, String tooltip, String url) {
+        JButton button = new ModernUI.ActionButton(label);
+        this.styleActionButton(button, Color.WHITE, foreground);
+        button.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 12));
+        button.setIcon(icon);
+        button.setIconTextGap(7);
+        button.setBorderPainted(true);
+        button.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(BORDER_COLOR, 1, true), new EmptyBorder(7, 11, 7, 11)));
+        button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        button.setToolTipText(tooltip);
+        button.addActionListener(event -> this.openExternalLink(url));
+        return button;
+    }
+
+    private static final class CommunityIcon implements Icon {
+        static final int GITHUB = 1;
+        static final int QQ = 2;
+        static final int HEART = 3;
+        private final int type;
+        private final Color color;
+
+        CommunityIcon(int type, Color color) {
+            this.type = type;
+            this.color = color;
+        }
+
+        @Override public int getIconWidth() { return 18; }
+        @Override public int getIconHeight() { return 18; }
+
+        @Override
+        public void paintIcon(Component component, Graphics graphics, int x, int y) {
+            Graphics2D g = (Graphics2D)graphics.create();
+            try {
+                g.translate(x, y);
+                g.scale(18.0 / 24.0, 18.0 / 24.0);
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+                g.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                if (type == GITHUB) {
+                    Path2D cat = new Path2D.Double();
+                    cat.moveTo(5.5, 8);
+                    cat.lineTo(4, 2.5); cat.curveTo(3.8, 1.6, 4.7, 1.1, 5.5, 1.7);
+                    cat.lineTo(10, 5); cat.curveTo(11.3, 4.6, 12.7, 4.6, 14, 5);
+                    cat.lineTo(18.5, 1.7); cat.curveTo(19.3, 1.1, 20.2, 1.6, 20, 2.5);
+                    cat.lineTo(18.5, 8); cat.curveTo(21.4, 10.5, 21.6, 14.6, 19.2, 17.5);
+                    cat.curveTo(17.4, 19.7, 14.8, 20.5, 12, 20.5);
+                    cat.curveTo(9.2, 20.5, 6.6, 19.7, 4.8, 17.5);
+                    cat.curveTo(2.4, 14.6, 2.6, 10.5, 5.5, 8);
+                    cat.closePath();
+                    g.setColor(color);
+                    g.fill(cat);
+                    g.setColor(Color.WHITE);
+                    g.fill(new Ellipse2D.Double(7.4, 10.3, 1.6, 2.3));
+                    g.fill(new Ellipse2D.Double(15.0, 10.3, 1.6, 2.3));
+                    g.setColor(color);
+                    g.setStroke(new BasicStroke(2.2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    Path2D tail = new Path2D.Double();
+                    tail.moveTo(18.7, 15.2); tail.curveTo(23, 13.8, 23.2, 18.7, 20.1, 19.2);
+                    tail.curveTo(18.4, 19.5, 18.1, 17.7, 19.2, 17.1);
+                    g.draw(tail);
+                } else if (type == QQ) {
+                    g.setColor(color);
+                    g.draw(new RoundRectangle2D.Double(2.0, 3.0, 14.0, 11.0, 4.0, 4.0));
+                    Path2D firstTail = new Path2D.Double();
+                    firstTail.moveTo(5.0, 13.4); firstTail.lineTo(4.0, 17.0); firstTail.lineTo(8.0, 14.0);
+                    g.draw(firstTail);
+                    g.draw(new RoundRectangle2D.Double(9.0, 9.0, 12.0, 10.0, 4.0, 4.0));
+                    Path2D secondTail = new Path2D.Double();
+                    secondTail.moveTo(17.0, 18.4); secondTail.lineTo(19.5, 21.0); secondTail.lineTo(19.0, 18.0);
+                    g.draw(secondTail);
+                } else {
+                    Path2D heart = new Path2D.Double();
+                    heart.moveTo(12, 21);
+                    heart.curveTo(10, 19.2, 3.0, 13.4, 3.0, 8.6);
+                    heart.curveTo(3.0, 3.5, 9.1, 2.0, 12, 6.1);
+                    heart.curveTo(14.9, 2.0, 21.0, 3.5, 21.0, 8.6);
+                    heart.curveTo(21.0, 13.4, 14.0, 19.2, 12, 21);
+                    heart.closePath();
+                    g.setColor(color);
+                    g.fill(heart);
+                }
+            } finally {
+                g.dispose();
+            }
+        }
     }
 
     private JPanel createSettingsConfirmPanel() {
@@ -2127,11 +2293,20 @@ extends JFrame {
 
     /** 在系统浏览器打开 GitHub 最新发布页。 */
     private void openReleasePage() {
+        this.openExternalLink(OFFICIAL_RELEASES_URL);
+    }
+
+    private void openExternalLink(String address) {
         try {
-            java.awt.Desktop.getDesktop().browse(new java.net.URI(UpdateChecker.RELEASES_PAGE));
+            if (!java.awt.Desktop.isDesktopSupported()
+                    || !java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
+                throw new java.io.IOException("当前系统没有可用的网页浏览器接口。");
+            }
+            if (!address.startsWith("https://")) throw new java.net.URISyntaxException(address, "Only HTTPS links are supported.");
+            java.awt.Desktop.getDesktop().browse(java.net.URI.create(address));
         } catch (Exception ex) {
             JOptionPane.showMessageDialog(this, "无法打开浏览器：" + ex.getMessage()
-                    + "\n" + UpdateChecker.RELEASES_PAGE, I18n.tr("错误"), JOptionPane.ERROR_MESSAGE);
+                    + "\n" + address, I18n.tr("错误"), JOptionPane.ERROR_MESSAGE);
         }
     }
 

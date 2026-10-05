@@ -477,5 +477,17 @@
   " · 每隔 6 小时自动检测": " · Checks every 6 hours",
   " · 点击更新": " · Click to update",
   "发现新版本 · 点击更新": "New version available · Click to update",
-  "TBH助手版本更新": "TBH Helper update"
+  "TBH助手版本更新": "TBH Helper update",
+  "免责说明": "Disclaimer",
+  "TBH助手免费下载和使用。Awan维护代码已在 GitHub 开源。": "TBH Helper is free to download and use. Awan's maintenance code is open source on GitHub.",
+  "请从官方发布页下载；遇到收费售卖，请勿付款，并先核验版本。": "Download from the official release page. Verify the version before paying anyone who offers this software for sale.",
+  "自动化操作可能受到游戏或平台规则限制，请先阅读相关规则并自行评估账号风险。": "Automation may be restricted by game or platform rules. Read the applicable rules and assess the account risks before use.",
+  "QQ群：123777707  ·  验证答案：挂机助手": "QQ group: 123777707 · Verification answer: 挂机助手",
+  "GitHub 官方发布页": "Official GitHub releases",
+  "加入群聊【Awan的助手群】": "Join QQ group: Awan's Helper Group",
+  "自愿赞助": "Optional sponsorship",
+  "QQ群": "QQ Group",
+  "赞助": "Sponsor",
+  "查看 GitHub 官方发布页": "Open official GitHub releases",
+  "自愿赞助 Awan": "Optional support for Awan"
 }
