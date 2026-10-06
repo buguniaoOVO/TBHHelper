@@ -32,6 +32,16 @@ public class StoreTask implements BotTask {
         long now = System.currentTimeMillis();
         if (now < this.nextExecutionAt()) return;
         nextStoreAttemptAt = now + 10000L;
+        this.runOnce();
+    }
+
+    /** 一键开启后的立即执行：忽略冷却，直接整理一次。 */
+    public void executeImmediate() {
+        nextStoreAttemptAt = System.currentTimeMillis() + 10000L;
+        this.runOnce();
+    }
+
+    private void runOnce() {
         MonitorStatus status = DllApiClient.getMonitorStatus();
         if (!status.isReady() || status.warehousePages < 1) {
             long noticeNow = System.currentTimeMillis();

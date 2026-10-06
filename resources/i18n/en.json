@@ -489,5 +489,12 @@
   "QQ群": "QQ Group",
   "赞助": "Sponsor",
   "查看 GitHub 官方发布页": "Open official GitHub releases",
-  "自愿赞助 Awan": "Optional support for Awan"
+  "自愿赞助 Awan": "Optional support for Awan",
+  "启用防掉线（异常时自动重启游戏）": "Enable offline guard (restart the game when it drops)",
+  "防掉线检测间隔（分钟）：": "Offline guard interval (minutes):",
+  "防掉线状态：": "Offline guard status: ",
+  "防掉线状态：未启用。": "Offline guard status: disabled.",
+  "防掉线未启用。": "Offline guard is disabled.",
+  "已获得管理员权限，助手可检测游戏掉线并自动重启游戏和连接。": "Administrator rights acquired. The helper can detect a dropped game and restart it and the connection automatically.",
+  "未获得管理员权限，请以管理员身份运行，启用助手防掉线功能。": "No administrator rights. Run the helper as administrator to enable the offline guard."
 }

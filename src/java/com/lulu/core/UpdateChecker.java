@@ -26,10 +26,14 @@ public final class UpdateChecker {
     private static final String LATEST_TAG_REDIRECT = "https://github.com/" + OWNER + "/" + REPO + "/releases/latest";
     public static final String RELEASES_PAGE = "https://github.com/" + OWNER + "/" + REPO + "/releases/latest";
 
-    /** 不会被更新覆盖的用户文件。 */
+    /** 不会被更新覆盖的用户文件：配置、掉落与统计记录、游戏路径和本地状态。 */
     private static final String[] USER_FILES = {
-            "settings.properties", "stats.properties", "activity.tsv", "game-path.txt", "launcher-error.log"
+            "settings.properties", "stats.properties", "activity.tsv", "game-path.txt",
+            "launcher-error.log", "update-error.log", "admin-status.txt"
     };
+
+    /** 整目录保留的用户数据。 */
+    private static final String[] USER_DIRECTORIES = {"cache", "旧版文件"};
 
     public static final class Release {
         public String tag = "";
@@ -135,13 +139,37 @@ public final class UpdateChecker {
         lines.add("$ErrorActionPreference = 'Stop'");
         lines.add("$tbhInstallRoot = " + quote(root));
         lines.add("$tbhUpdateRoot = " + quote(stagingRoot));
+        lines.add("$tbhUserFiles = " + powerShellArray(USER_FILES));
+        lines.add("$tbhUserDirs = " + powerShellArray(USER_DIRECTORIES));
         lines.add("try {");
         lines.add("while (Get-Process -Id " + pid + " -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }");
         lines.add("Start-Sleep -Milliseconds 800");
+        // 先把用户数据搬到安装目录内的临时备份，避免替换过程中丢失。
+        lines.add("$tbhBackup = Join-Path $tbhInstallRoot '.tbh-user-backup'");
+        lines.add("if (Test-Path -LiteralPath $tbhBackup) { Remove-Item -LiteralPath $tbhBackup -Recurse -Force }");
+        lines.add("New-Item -ItemType Directory -Path $tbhBackup | Out-Null");
+        lines.add("foreach ($tbhName in $tbhUserFiles) {");
+        lines.add("  $tbhSource = Join-Path $tbhInstallRoot $tbhName");
+        lines.add("  if (Test-Path -LiteralPath $tbhSource) { Copy-Item -LiteralPath $tbhSource -Destination $tbhBackup -Force }");
+        lines.add("}");
+        lines.add("foreach ($tbhDir in $tbhUserDirs) {");
+        lines.add("  $tbhSource = Join-Path $tbhInstallRoot $tbhDir");
+        lines.add("  if (Test-Path -LiteralPath $tbhSource) { Copy-Item -LiteralPath $tbhSource -Destination $tbhBackup -Recurse -Force }");
+        lines.add("}");
         lines.add("Get-ChildItem -LiteralPath " + quote(staged) + " | ForEach-Object { "
                 + "Copy-Item -LiteralPath $_.FullName -Destination " + quote(root) + " -Recurse -Force }");
         lines.add("if (-not (Test-Path -LiteralPath " + quote(root.resolve(newJar.getFileName()))
                 + " -PathType Leaf)) { throw 'Updated JAR missing' }");
+        // 覆盖完成后用备份恢复用户数据，确保设置、掉落记录和缓存保持一致。
+        lines.add("foreach ($tbhName in $tbhUserFiles) {");
+        lines.add("  $tbhBackupFile = Join-Path $tbhBackup $tbhName");
+        lines.add("  if (Test-Path -LiteralPath $tbhBackupFile) { Copy-Item -LiteralPath $tbhBackupFile -Destination $tbhInstallRoot -Force }");
+        lines.add("}");
+        lines.add("foreach ($tbhDir in $tbhUserDirs) {");
+        lines.add("  $tbhBackupDir = Join-Path $tbhBackup $tbhDir");
+        lines.add("  if (Test-Path -LiteralPath $tbhBackupDir) { Copy-Item -LiteralPath $tbhBackupDir -Destination $tbhInstallRoot -Recurse -Force }");
+        lines.add("}");
+        lines.add("Remove-Item -LiteralPath $tbhBackup -Recurse -Force");
         for (Path obsolete : obsoleteJars) {
             lines.add("if (Test-Path -LiteralPath " + quote(obsolete) + ") {");
             lines.add("$tbhOldJar = (Resolve-Path -LiteralPath " + quote(obsolete) + ").Path");
@@ -233,7 +261,20 @@ public final class UpdateChecker {
 
     private static boolean isUserFile(String name) {
         for (String user : USER_FILES) if (name.equals(user)) return true;
-        return name.startsWith("cache/") || name.startsWith("旧版文件/");
+        for (String user : USER_DIRECTORIES) {
+            if (name.equals(user) || name.startsWith(user + "/")) return true;
+        }
+        return false;
+    }
+
+    /** 生成 PowerShell 数组字面量，供更新脚本备份与校验用户数据。 */
+    private static String powerShellArray(String[] values) {
+        StringBuilder builder = new StringBuilder("@(");
+        for (int i = 0; i < values.length; i++) {
+            if (i > 0) builder.append(", ");
+            builder.append("'").append(values[i].replace("'", "''")).append("'");
+        }
+        return builder.append(')').toString();
     }
 
     private static String quote(Path path) {

@@ -63,6 +63,16 @@ public final class PlaguelandsTask implements BotTask {
         this.checkAndRoute();
     }
 
+    /** 一键开启后的立即执行：忽略间隔，立即检测地图并按需前往瘟疫之地。 */
+    public void executeImmediate() {
+        if (!Config.Global.AUTO_PLAGUELANDS_ENABLED) {
+            return;
+        }
+        int intervalMinutes = Math.max(1, Math.min(1440, Config.Global.PLAGUELANDS_CHECK_INTERVAL_MIN));
+        this.nextCheckAt = System.currentTimeMillis() + intervalMinutes * 60_000L;
+        this.checkAndRoute();
+    }
+
     private void checkAndRoute() {
         String response = DllApiClient.getGameStatus();
         if (response == null || !response.startsWith("SUCCESS")) {

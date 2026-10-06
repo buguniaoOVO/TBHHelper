@@ -30,6 +30,14 @@ public class ChestTask implements BotTask {
         openKinds(WHITE_KINDS, false);
     }
 
+    /** 一键开启后的立即执行：跳过 CD 检查，立即开一轮普通与稀有/BOSS 宝箱。 */
+    public void executeImmediate() throws InterruptedException {
+        ChestTracker.markBlueChecked();
+        ChestTracker.markWhiteChecked();
+        openKinds(BLUE_KINDS, true);
+        openKinds(WHITE_KINDS, false);
+    }
+
     private void openKinds(String[] orderedKinds, boolean blue) throws InterruptedException {
         Set<String> available = new HashSet<String>(Arrays.asList(DllApiClient.getAvailableChestKinds()));
         long nextKindAt = 0L;

@@ -77,12 +77,29 @@ public class Config {
                 int defaultPlagueMinutes = Math.max(1, (legacyPlagueSeconds + 59) / 60);
                 Global.PLAGUELANDS_CHECK_INTERVAL_MIN = Math.max(1, Math.min(1440,
                         Integer.parseInt(prop.getProperty("plague_check_interval_min", String.valueOf(defaultPlagueMinutes)))));
+                Global.WATCHDOG_ENABLED = Boolean.parseBoolean(prop.getProperty("watchdog_enabled", "false"));
+                Global.WATCHDOG_INTERVAL_MIN = Math.max(1, Math.min(180,
+                        Integer.parseInt(prop.getProperty("watchdog_interval_min", "10"))));
                 Synthesis.load(prop);
                 System.out.println(">>> [\u914d\u7f6e\u52a0\u8f7d] \u5df2\u5e94\u7528\u7528\u6237\u914d\u7f6e");
             }
             catch (Exception e) {
                 System.out.println(">>> [\u914d\u7f6e\u52a0\u8f7d] \u4f7f\u7528\u9ed8\u8ba4\u914d\u7f6e");
             }
+            Global.ADMIN_ELEVATED = readAdminMarker();
+        }
+
+        /** 启动器在提权成功时写入 elevated 标记；缺失或失败视为普通权限。 */
+        private static boolean readAdminMarker() {
+            try {
+                File marker = new File("admin-status.txt");
+                if (!marker.isFile()) return false;
+                for (String line : java.nio.file.Files.readAllLines(marker.toPath())) {
+                    if (line.trim().equalsIgnoreCase("elevated")) return true;
+                }
+            } catch (Exception ignored) {
+            }
+            return false;
         }
     }
 
@@ -222,7 +239,7 @@ public class Config {
 
     public static class Global {
         public static final String APP_TITLE = "TBH助手";
-        public static final String APP_VERSION = "v1.3.60";
+        public static final String APP_VERSION = "v1.3.61";
         public static long CHECK_INTERVAL = 500L;
         public static double MATCH_THRESHOLD = 0.8;
         public static double GAME_UI_SCALE = 1.5;
@@ -233,6 +250,11 @@ public class Config {
         public static boolean AUTO_PLAGUELANDS_ENABLED = false;
         public static int PLAGUELANDS_TARGET_LEVEL = 1;
         public static int PLAGUELANDS_CHECK_INTERVAL_MIN = 1;
+        /** 防掉线看门狗：按分钟检查游戏与插件连接，异常时结束游戏进程并重启。 */
+        public static boolean WATCHDOG_ENABLED = false;
+        public static int WATCHDOG_INTERVAL_MIN = 10;
+        /** 启动器是否已获得管理员权限；false 时界面红字提示。 */
+        public static boolean ADMIN_ELEVATED = false;
     }
     public static class Safety {
         public static int ACTION_GAP_SECONDS = 20;

@@ -29,6 +29,24 @@ public class CorrosionTask implements BotTask {
         }
     }
 
+    /** 一键开启后的立即执行：忽略阈值与批次间隔，立即尝试腐蚀一次。 */
+    public void executeImmediate() throws InterruptedException {
+        if (!Config.Synthesis.isCorrosionEnabled) return;
+        if (corrosionRecoveryPending) {
+            this.finishPendingCorrosionIfReady();
+            return;
+        }
+        MonitorStatus status = DllApiClient.getMonitorStatus();
+        if (!status.isReady()) {
+            this.lastResultMessage = "立即腐蚀等待污染度与仓库数据。";
+            return;
+        }
+        nextMonitorCheckAt = System.currentTimeMillis() + 5000L;
+        System.out.println(">>> [立即腐蚀] 一键开启后立即执行一轮腐蚀。");
+        executeBackendApi(Config.Synthesis.corrosionUseWarehouse, status);
+        lastCorrosionTime = System.currentTimeMillis();
+    }
+
     public String getLastResultMessage() {
         return this.lastResultMessage;
     }

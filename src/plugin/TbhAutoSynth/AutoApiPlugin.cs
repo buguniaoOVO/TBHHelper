@@ -10,7 +10,7 @@ namespace TbhAutoSynth;
 [BepInPlugin("com.pres.tbh.autosynth", "TBH Auto API", AutoApiPlugin.Version)]
 public class AutoApiPlugin : BasePlugin
 {
-	public const string Version = "1.3.60";
+	public const string Version = "1.3.61";
 	public const int ApiProtocol = 4;
 	internal static string RuntimeSignature = "";
 	internal static string RuntimeHash = "";

@@ -6,17 +6,19 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
 using System.Threading;
+using System.Security.Principal;
+using System.Diagnostics;
 
 [assembly: AssemblyTitle("TBH助手")]
 [assembly: AssemblyDescription("TBH助手")]
 [assembly: AssemblyProduct("TBH助手")]
 [assembly: AssemblyCompany("Awan")]
-[assembly: AssemblyVersion("1.3.60.0")]
-[assembly: AssemblyFileVersion("1.3.60.0")]
+[assembly: AssemblyVersion("1.3.61.0")]
+[assembly: AssemblyFileVersion("1.3.61.0")]
 
 internal static class TbhBootstrap
 {
-    private const string AppFileName = "TBH-Helper-v1.3.60.jar";
+    private const string AppFileName = "TBH-Helper-v1.3.61.jar";
     private const string RuntimeFolder = "runtime";
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -110,6 +112,79 @@ internal static class TbhBootstrap
         return fallback;
     }
 
+    /// <summary>已提权时写入 elevated 标记，否则写入 standard，供界面红字提示使用。</summary>
+    private static void WriteAdminMarker(string root)
+    {
+        try
+        {
+            bool elevated;
+            using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+            {
+                WindowsPrincipal principal = new WindowsPrincipal(identity);
+                elevated = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            }
+            File.WriteAllText(Path.Combine(root, "admin-status.txt"),
+                elevated ? "elevated" : "standard", new UTF8Encoding(false));
+        }
+        catch { }
+    }
+
+    private static bool IsElevated()
+    {
+        try
+        {
+            using (WindowsIdentity identity = WindowsIdentity.GetCurrent())
+            {
+                return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+            }
+        }
+        catch { return false; }
+    }
+
+    /// <summary>读取 settings.properties，判断防掉线看门狗是否已启用。</summary>
+    private static bool WatchdogEnabled(string root)
+    {
+        try
+        {
+            string file = Path.Combine(root, "settings.properties");
+            if (!File.Exists(file)) return false;
+            foreach (string line in File.ReadAllLines(file))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith("watchdog_enabled", StringComparison.OrdinalIgnoreCase))
+                {
+                    int equals = trimmed.IndexOf('=');
+                    if (equals < 0) return false;
+                    return trimmed.Substring(equals + 1).Trim().Equals("true", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    /// <summary>
+    /// 非管理员时尝试用 runas 重新启动自身。返回 true 表示已交给提权后的新进程，
+    /// 当前进程应退出；返回 false 表示用户拒绝提权，继续以普通权限运行。
+    /// </summary>
+    private static bool TryRelaunchElevated()
+    {
+        if (IsElevated()) return false;
+        try
+        {
+            ProcessStartInfo info = new ProcessStartInfo();
+            info.FileName = Assembly.GetExecutingAssembly().Location;
+            info.UseShellExecute = true;
+            info.Verb = "runas";
+            Process.Start(info);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     [STAThread]
     private static int Main(string[] args)
     {
@@ -119,14 +194,18 @@ internal static class TbhBootstrap
         bool ownsInstance = false;
         try
         {
+            // 仅在启用防掉线时才需要管理员权限：此时先尝试提权。
+            // 提权后的新进程会重新获取互斥锁，因此这一步必须在加锁之前。
+            root = AppRoot();
+            if (WatchdogEnabled(root) && TryRelaunchElevated()) return 0;
             instance = new Mutex(true, @"Local\TBH.Helper.Desktop", out ownsInstance);
             if (!ownsInstance)
             {
                 MessageBox.Show("助手已在运行，请从任务栏或托盘打开。", "TBH助手", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return 0;
             }
-            root = AppRoot();
             Directory.SetCurrentDirectory(root);
+            WriteAdminMarker(root);
             string runtime = RuntimeRoot(root);
             string application = AppFile(root);
             string executable = Assembly.GetExecutingAssembly().Location;

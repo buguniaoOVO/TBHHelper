@@ -212,6 +212,10 @@ extends JFrame {
     private UpdateChecker.Release pendingUpdate;
     private volatile String automaticUpdateStatus = "启动后及每隔 6 小时检测 GitHub 版本。";
     private JButton releasePageBtn;
+    private JCheckBox watchdogEnabledCheck;
+    private JSpinner watchdogIntervalSpinner;
+    private JLabel adminPrivilegeLabel;
+    private JLabel watchdogStatusLabel;
     private JLabel totalBlueLbl;
     private JLabel totalWhiteLbl;
     private JLabel sessionBlueLbl;
@@ -254,6 +258,7 @@ extends JFrame {
         this.startCorrosionMonitor();
         this.startGameEventPoller();
         this.startAutomaticUpdateChecks();
+        this.startWatchdog();
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             System.out.println(">>> [\u7cfb\u7edf] \u76d1\u6d4b\u5230\u7a0b\u5e8f\u5173\u95ed\uff0c\u6b63\u5728\u6e05\u7406\u8d44\u6e90...");
             this.stopBot();
@@ -1340,6 +1345,9 @@ extends JFrame {
         if (this.apiAddressLabel != null) I18n.setText(this.apiAddressLabel, "后台环境 / Runtime: 本机 API " + DllApiClient.getApiAddress());
         if (this.gamePathStatusLabel != null) I18n.setText(this.gamePathStatusLabel, this.pluginInitializationStatus);
         if (this.automaticUpdateStatusLabel != null) I18n.setText(this.automaticUpdateStatusLabel, this.automaticUpdateStatus);
+        if (this.watchdogStatusLabel != null) {
+            I18n.setText(this.watchdogStatusLabel, "防掉线状态：" + com.lulu.core.ConnectionWatchdog.get().getStatus());
+        }
         if (this.overviewAutomationValue != null) {
             I18n.setText(this.overviewAutomationValue, this.automationOverviewStatus());
             this.overviewAutomationValue.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 12));
@@ -2075,7 +2083,49 @@ extends JFrame {
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         p.add(new JLabel("纯白"), gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 10;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.0;
+        this.watchdogEnabledCheck = new JCheckBox("启用防掉线（异常时自动重启游戏）", Config.Global.WATCHDOG_ENABLED);
+        p.add(this.watchdogEnabledCheck, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 11;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.0;
+        JPanel watchdogRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        watchdogRow.setOpaque(false);
+        watchdogRow.add(new JLabel("防掉线检测间隔（分钟）："));
+        this.watchdogIntervalSpinner = new JSpinner(new SpinnerNumberModel(Config.Global.WATCHDOG_INTERVAL_MIN, 1, 180, 1));
+        this.watchdogIntervalSpinner.setPreferredSize(new Dimension((int)Math.round(72 * APP_SCALE), this.watchdogIntervalSpinner.getPreferredSize().height));
+        watchdogRow.add(this.watchdogIntervalSpinner);
+        p.add(watchdogRow, gbc);
+        gbc.gridx = 0;
+        gbc.gridy = 12;
+        gbc.gridwidth = 2;
+        gbc.weightx = 0.0;
+        this.watchdogStatusLabel = new JLabel("防掉线状态：未启用。");
+        this.watchdogStatusLabel.setForeground(MUTED_COLOR);
+        this.watchdogStatusLabel.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 11));
+        p.add(this.watchdogStatusLabel, gbc);
+        gbc.gridy = 13;
+        this.adminPrivilegeLabel = new JLabel();
+        this.adminPrivilegeLabel.setFont(scaledFont("Microsoft YaHei UI", Font.PLAIN, 11));
+        p.add(this.adminPrivilegeLabel, gbc);
+        updateAdminPrivilegeLabel(this.adminPrivilegeLabel);
         return p;
+    }
+
+    /** 未取得管理员权限时用红字提示；已提权时显示普通说明。 */
+    private static void updateAdminPrivilegeLabel(JLabel label) {
+        if (label == null) return;
+        if (Config.Global.ADMIN_ELEVATED) {
+            label.setForeground(MUTED_COLOR);
+            I18n.setText(label, "已获得管理员权限，助手可检测游戏掉线并自动重启游戏和连接。");
+        } else {
+            label.setForeground(new Color(190, 38, 48));
+            I18n.setText(label, "未获得管理员权限，请以管理员身份运行，启用助手防掉线功能。");
+        }
     }
 
     private int enqueueDueJobs(List<AutomationJob> jobs, ArrayDeque<AutomationJob> queue,
@@ -2191,6 +2241,19 @@ extends JFrame {
         });
         this.automaticUpdateScheduler.scheduleAtFixedRate(() -> this.checkForUpdates(true),
                 2L, TimeUnit.HOURS.toSeconds(6L), TimeUnit.SECONDS);
+    }
+
+    private void startWatchdog() {
+        com.lulu.core.ConnectionWatchdog watchdog = com.lulu.core.ConnectionWatchdog.get();
+        this.applyWatchdogConfiguration();
+        watchdog.start();
+        System.out.println(">>> [防掉线] 看门狗线程已启动；当前" + (Config.Global.WATCHDOG_ENABLED
+                ? "已启用，检测间隔 " + Config.Global.WATCHDOG_INTERVAL_MIN + " 分钟。" : "未启用。"));
+    }
+
+    private void applyWatchdogConfiguration() {
+        com.lulu.core.ConnectionWatchdog.get()
+                .configure(Config.Global.WATCHDOG_ENABLED, Config.Global.WATCHDOG_INTERVAL_MIN);
     }
 
     private void checkForUpdates(boolean automatic) {
@@ -2497,6 +2560,12 @@ extends JFrame {
             prop.setProperty("plague_target_level", String.valueOf(plagueTargetLevel));
             prop.setProperty("plague_check_interval_min", String.valueOf(plagueInterval));
             prop.remove("plague_check_interval_sec");
+            boolean watchdogEnabled = this.watchdogEnabledCheck != null
+                    ? this.watchdogEnabledCheck.isSelected() : Config.Global.WATCHDOG_ENABLED;
+            int watchdogInterval = this.watchdogIntervalSpinner == null ? Config.Global.WATCHDOG_INTERVAL_MIN
+                    : Math.max(1, Math.min(180, ((Number)this.watchdogIntervalSpinner.getValue()).intValue()));
+            prop.setProperty("watchdog_enabled", String.valueOf(watchdogEnabled));
+            prop.setProperty("watchdog_interval_min", String.valueOf(watchdogInterval));
             prop.setProperty("use_background", String.valueOf(this.useApiCheckBox.isSelected()));
             if (Config.UserData.GAME_PATH != null && !Config.UserData.GAME_PATH.isEmpty()) {
                 prop.setProperty("game_path", Config.UserData.GAME_PATH);
@@ -2508,6 +2577,7 @@ extends JFrame {
                 prop.store(out, null);
             }
             Config.UserData.loadSettings();
+            this.applyWatchdogConfiguration();
             this.otherRecordRetentionHours = otherRetention;
             this.otherRecordsPermanent = keepOtherRecordsForever;
             ActivityStore.setRetentionHours(statsRetention, logRetention, otherRetention, keepOtherRecordsForever);
@@ -2576,6 +2646,7 @@ extends JFrame {
                 System.out.println("\u4efb\u52a1\u521d\u59cb\u5316\u5b8c\u6210");
                 Thread.sleep(2000L);
                 System.out.println(">>> [操作保护] 点击间隔=" + Config.Safety.CLICK_GAP_SECONDS + "秒；任务共用排队间隔=" + Config.Safety.ACTION_GAP_SECONDS + "秒。");
+                this.runImmediateRound(plaguelands, corrosion, store, chest);
                 while (this.isRunning && !Thread.currentThread().isInterrupted()) {
                     if (User32.INSTANCE.FindWindow(null, "TaskBarHero") == null) {
                         JOptionPane.showMessageDialog(null, I18n.tr("\u6e38\u620f\u610f\u5916\u5173\u95ed\uff0c\u6302\u673a\u5df2\u81ea\u52a8\u7ec8\u6b62\u3002"), I18n.tr("\u8b66\u544a"), 2);
@@ -2676,6 +2747,51 @@ extends JFrame {
             }
         });
         this.botThread.start();
+    }
+
+    /**
+     * 一键开启后的立即执行：按顺序跑一轮地图检测、腐蚀、仓库整理和开箱，
+     * 让用户马上看到动作，再进入正常的定时调度循环。
+     */
+    private void runImmediateRound(PlaguelandsTask plaguelands, CorrosionTask corrosion,
+            StoreTask store, ChestTask chest) throws InterruptedException {
+        System.out.println(">>> [立即执行] 一键开启后先执行一轮检测与操作。");
+        this.activeAutomationTask = "立即执行-地图检测";
+        try {
+            plaguelands.executeImmediate();
+        } catch (Exception ex) {
+            System.out.println("⚠️ [立即执行] 地图检测异常：" + ex.getMessage());
+        }
+        Thread.sleep(Config.Safety.ACTION_GAP_SECONDS * 1000L);
+
+        this.activeAutomationTask = "立即执行-腐蚀";
+        try {
+            corrosion.executeImmediate();
+        } catch (InterruptedException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("⚠️ [立即执行] 腐蚀异常：" + ex.getMessage());
+        }
+        Thread.sleep(Config.Safety.ACTION_GAP_SECONDS * 1000L);
+
+        this.activeAutomationTask = "立即执行-仓库整理";
+        try {
+            store.executeImmediate();
+        } catch (Exception ex) {
+            System.out.println("⚠️ [立即执行] 仓库整理异常：" + ex.getMessage());
+        }
+        Thread.sleep(Config.Safety.ACTION_GAP_SECONDS * 1000L);
+
+        this.activeAutomationTask = "立即执行-开箱";
+        try {
+            chest.executeImmediate();
+        } catch (InterruptedException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            System.out.println("⚠️ [立即执行] 开箱异常：" + ex.getMessage());
+        }
+        this.activeAutomationTask = "";
+        System.out.println(">>> [立即执行] 本轮完成，转入定时调度。");
     }
 
     private void stopBot() {

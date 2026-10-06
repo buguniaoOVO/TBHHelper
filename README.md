@@ -7,7 +7,7 @@
 
 TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自动合成、瘟疫之地与腐蚀设置，以及带道具图片和市场参考价的仓库页面。
 
-**[下载 v1.3.60](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.60)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.61](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.61)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![运行概览](docs/images/01-overview.png)
 
@@ -73,7 +73,7 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 首次安装：
 
-1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.60) 下载 Windows x64 ZIP，完整解压到任意可写目录。
+1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.61) 下载 Windows x64 ZIP，完整解压到任意可写目录。
 2. 双击文件夹里的 `TBH助手.exe` 打开助手，界面显示当前版本。
 3. **先退出游戏**，启动助手。助手按已保存路径、运行中的游戏和 Steam 库识别目录，并自动同步当前包的 DLL；无法识别时，在设置页填写游戏目录。
 4. 自动初始化会核验 DLL；缺少运行环境时部署附带的环境。设置页“一键部署”可以重新执行完整文件校验。
@@ -93,7 +93,15 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 助手启动后自动检测 GitHub 最新发布，随后每隔 6 小时检测一次。发现新版本时，顶部显示更新入口，并通过托盘消息提醒；同一版本在本次运行中提醒一次。点击更新入口后可确认下载和安装，自动检测失败会记录到日志，设置页显示最近检测状态。
 
+自动更新和手动换版都在同一个安装目录内进行，一般在 `D:/Tool/赛博养蛊/` 下按版本号建立新目录。更新只替换程序、插件和运行文件，设置、掉落与统计记录、游戏目录、缓存会先备份再恢复，继续沿用原有数据。
+
 首页底部红字免责说明提供官方发布页、QQ群与自愿赞助入口；上方链接栏使用 GitHub、QQ 聊天框和爱心图标。本助手免费下载和使用，Awan维护代码在 GitHub 开源。QQ群：123777707，验证答案：挂机助手。
+
+### 防掉线与立即执行
+
+设置页可开启“防掉线”，按分钟检查游戏与插件连接，异常时结束游戏进程并通过 Steam 重启，页面显示重启次数和最近状态。该功能默认关闭；开启后助手启动时会尝试获取管理员权限，被拒绝时以普通权限运行并用红字说明。
+
+点击“一键开启”后立即执行一轮：地图检测、腐蚀、仓库整理、开箱依次运行，再转入按 CD 的定时调度。
 
 顶部连接区域显示 DLL 初始化状态：黄色表示正在初始化或等待同步，完成后等待游戏连接；实际加载的 DLL 和接口通过校验后显示“游戏已连接”，并隐藏初始化提示。
 
