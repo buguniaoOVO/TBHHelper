@@ -2,18 +2,48 @@ namespace TbhAutoSynth;
 
 internal static class ChestSelectionPolicy
 {
-    internal static string Kind(int boxType, bool plague)
-    {
-        string type = boxType == 0 ? "normal" : boxType == 1 ? "boss" : boxType == 2 ? "actboss" : "";
-        return type.Length == 0 ? "" : (plague ? "plague-" : "") + type;
-    }
+	internal static string Kind(int boxType, bool plague)
+	{
+		string text = boxType switch
+		{
+			2 => "actboss",
+			1 => "boss",
+			0 => "normal",
+			_ => "",
+		};
+		if (text.Length != 0)
+		{
+			return (plague ? "plague-" : "") + text;
+		}
+		return "";
+	}
 
-    internal static bool Matches(string expected, string kind)
-    {
-        if (string.IsNullOrEmpty(kind)) return false;
-        if (expected == "white") return kind == "normal" || kind == "plague-normal";
-        if (expected == "blue") return kind == "boss" || kind == "plague-boss"
-            || kind == "actboss" || kind == "plague-actboss";
-        return expected == kind;
-    }
+	internal static bool Matches(string expected, string kind)
+	{
+		if (string.IsNullOrEmpty(kind))
+		{
+			return false;
+		}
+		if (expected == "white")
+		{
+			if (!(kind == "normal"))
+			{
+				return kind == "plague-normal";
+			}
+			return true;
+		}
+		if (expected == "blue")
+		{
+			switch (kind)
+			{
+			default:
+				return kind == "plague-actboss";
+			case "boss":
+			case "plague-boss":
+			case "actboss":
+				return true;
+			}
+		}
+		return expected == kind;
+	}
 }

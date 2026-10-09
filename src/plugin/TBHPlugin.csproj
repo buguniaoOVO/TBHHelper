@@ -5,8 +5,9 @@
     <TargetFramework>netcoreapp6.0</TargetFramework>
   </PropertyGroup>
   <PropertyGroup>
-    <LangVersion>12.0</LangVersion>
+    <LangVersion>14.0</LangVersion>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
     <GameBepInExDir>$(GameDir)\BepInEx\core</GameBepInExDir>
     <GameInteropDir>$(GameDir)\BepInEx\interop</GameInteropDir>
     <DebugType>none</DebugType>

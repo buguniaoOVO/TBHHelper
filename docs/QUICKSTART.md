@@ -23,7 +23,7 @@
 | --- | --- |
 | `TBH助手.exe` | 启动入口，双击即可运行，任务管理器显示 TBH助手 |
 | `runtime` | 内置 Java 运行库，随包提供 |
-| `TBH-Helper-v1.3.61.jar` | 助手界面与逻辑 |
+| `TBH-Helper-v1.3.63.jar` | 助手界面与逻辑 |
 | `TBHPlugin-自动腐蚀版.dll` | 游戏插件，一键部署时复制到游戏的 `BepInEx/plugins/TBHPlugin.dll` |
 | `BepInExPackage` | 官方 IL2CPP 后台运行环境，一键部署时释放 |
 | `settings.properties` | 你的助手配置 |
