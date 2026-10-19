@@ -9,10 +9,10 @@ using Il2CppInterop.Runtime.Injection;
 
 namespace TbhAutoSynth;
 
-[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto API", "1.3.63")]
+[BepInPlugin("com.pres.tbh.autosynth", "TBH Auto API", "1.3.64")]
 public class AutoApiPlugin : BasePlugin
 {
-	public const string Version = "1.3.63";
+	public const string Version = "1.3.64";
 
 	public const int ApiProtocol = 4;
 

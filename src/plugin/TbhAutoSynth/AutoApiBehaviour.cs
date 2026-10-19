@@ -230,6 +230,10 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 
 	private bool _operationMenuOpenRequested;
 
+	private bool _backgroundModeCaptured;
+
+	private bool _originalRunInBackground;
+
 	private const float MAX_PENDING_TIMEOUT = 8f;
 
 	private const float MAX_PENDING_FILL_TIMEOUT = 12f;
@@ -372,7 +376,14 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 				text2 = DispatchToMainThreadAndWait("events_refresh");
 				break;
 			default:
-				if (text.StartsWith("/api/automation/pacing/"))
+				if (text.StartsWith("/api/game/background/", StringComparison.Ordinal))
+				{
+					string mode = text.Substring("/api/game/background/".Length);
+					text2 = mode == "enabled" || mode == "disabled"
+						? DispatchToMainThreadAndWait("game_background_" + mode)
+						: "FAILED|INVALID_BACKGROUND_MODE";
+				}
+				else if (text.StartsWith("/api/automation/pacing/"))
 				{
 					text2 = (int.TryParse(text.Replace("/api/automation/pacing/", ""), out var result) ? InventoryOperationGate.ConfigurePacing(result) : "FAILED");
 				}
@@ -831,7 +842,26 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 		bool isEnabled = false;
 		try
 		{
-			if (result.Command == "chest_white")
+			if (result.Command == "game_background_enabled" || result.Command == "game_background_disabled")
+			{
+				bool enabled = result.Command == "game_background_enabled";
+				if (enabled)
+				{
+					if (!_backgroundModeCaptured)
+					{
+						_originalRunInBackground = UnityEngine.Application.runInBackground;
+						_backgroundModeCaptured = true;
+					}
+					UnityEngine.Application.runInBackground = true;
+				}
+				else if (_backgroundModeCaptured)
+				{
+					UnityEngine.Application.runInBackground = _originalRunInBackground;
+					_backgroundModeCaptured = false;
+				}
+				text4 = "SUCCESS|run_in_background=" + UnityEngine.Application.runInBackground.ToString().ToLowerInvariant();
+			}
+			else if (result.Command == "chest_white")
 			{
 				text4 = ExecuteClickChest("white");
 			}

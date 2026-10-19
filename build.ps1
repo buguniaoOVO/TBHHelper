@@ -10,10 +10,10 @@ $tbhRoot=$PSScriptRoot
 $tbhBase=(Resolve-Path -LiteralPath $BaseApp).Path
 if(-not $JavaPath){$JavaPath=Join-Path (Split-Path -Parent $tbhBase) 'jre\bin\java.exe'}
 if(-not(Test-Path -LiteralPath $JavaPath)){throw '请用-JavaPath指定Java 17或更高的java.exe'}
-$tbhClasses=Join-Path $tbhRoot 'build\classes'
+$tbhClasses=Join-Path $tbhRoot 'build\classes-incremental'
 $tbhNative=Join-Path $tbhRoot 'build\native'
 New-Item -ItemType Directory -Path $tbhClasses,$tbhNative,(Join-Path $tbhRoot 'dist') -Force | Out-Null
-$tbhNames=@('MainGUI','api\DllApiClient','api\CubeFillStatus','api\PluginCompatibility','api\BridgeEndpoint','api\MonitorStatus','config\Config','core\BepInExConfig','core\DeployManager','core\PluginDeployment','core\CorrosionTiming','core\UpdateChecker','core\ConnectionWatchdog','gui\DesktopSupport','gui\I18n','gui\UiPreferences','gui\ModernUI','gui\NavigationIcon','logic\monitor\ActivityStore','logic\monitor\ChestTracker','logic\monitor\PeriodicSchedule','logic\monitor\StatsManager','logic\tasks\ChestTask','logic\tasks\CorrosionTask','logic\tasks\EquipmentSynthesisTask','logic\tasks\MaterialSynthesisTask','logic\tasks\SynthesisRunner','logic\tasks\PlaguelandsTask','logic\tasks\StoreTask','warehouse\MarketPriceClient','warehouse\WarehouseModel','warehouse\WarehousePanel')
+$tbhNames=@('core\GameWindowController','gui\DesktopSupport')
 $tbhSources=@($tbhNames | ForEach-Object {Join-Path $tbhRoot ('src\java\com\lulu\'+$_+'.java')})
 & $JavaPath '-Dfile.encoding=UTF-8' -jar (Join-Path $tbhRoot 'tools\ecj.jar') -encoding UTF-8 -source 8 -target 8 -cp $tbhBase -d $tbhClasses @tbhSources
 if($LASTEXITCODE -ne 0){throw 'Java compilation failed'}

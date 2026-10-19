@@ -1,10 +1,14 @@
 package com.lulu.gui;
 
+import com.lulu.core.GameWindowController;
 import com.sun.jna.Native;
 import com.sun.jna.WString;
 import com.sun.jna.win32.StdCallLibrary;
 import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Image;
 import java.awt.SystemTray;
@@ -15,9 +19,11 @@ import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import javax.imageio.ImageIO;
 import javax.swing.BorderFactory;
+import javax.swing.JButton;
 import javax.swing.ImageIcon;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
@@ -26,6 +32,7 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 
 public final class DesktopSupport {
     private final JFrame window;
@@ -34,6 +41,9 @@ public final class DesktopSupport {
     private final List<Image> icons;
     private TrayIcon trayIcon;
     private JPopupMenu trayMenu;
+    private JButton gameWindowButton;
+    private Timer gameWindowRefreshTimer;
+    private final AtomicBoolean gameWindowActionRunning = new AtomicBoolean();
     private Runnable notificationAction;
     private boolean closeDialogOpen;
 
@@ -97,14 +107,121 @@ public final class DesktopSupport {
 
             @Override
             public void windowClosed(WindowEvent event) {
+                if (gameWindowRefreshTimer != null) gameWindowRefreshTimer.stop();
                 removeTrayIcon();
             }
         });
+        Runtime.getRuntime().addShutdownHook(new Thread(GameWindowController::restoreOnExit,
+                "tbh-game-window-restore"));
+        SwingUtilities.invokeLater(this::installGameWindowControl);
+    }
+
+    private void installGameWindowControl() {
+        JPanel actionRow = findAutomationActionRow(window.getContentPane());
+        if (actionRow == null) {
+            System.err.println("[游戏窗口] 未找到助手顶部控制栏，隐藏按钮未添加。");
+            return;
+        }
+        JButton startButton = findAutomationButton(actionRow, true);
+        gameWindowButton = new ModernUI.ActionButton("隐藏游戏窗口");
+        gameWindowButton.setFont(new Font("Microsoft YaHei UI", Font.BOLD, 12));
+        gameWindowButton.setToolTipText("隐藏 TaskBarHero；再次点击此处恢复");
+        gameWindowButton.addActionListener(event -> toggleGameWindow());
+        int index = startButton == null ? actionRow.getComponentCount() : actionRow.getComponentZOrder(startButton);
+        actionRow.add(gameWindowButton, Math.max(0, index));
+        actionRow.revalidate();
+        actionRow.repaint();
+        refreshGameWindowControl();
+        gameWindowRefreshTimer = new Timer(750, event -> refreshGameWindowControl());
+        gameWindowRefreshTimer.start();
+    }
+
+    private static JPanel findAutomationActionRow(Container parent) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof JPanel) {
+                JPanel panel = (JPanel)component;
+                if (panel.getLayout() instanceof FlowLayout
+                        && findAutomationButton(panel, true) != null
+                        && findAutomationButton(panel, false) != null) {
+                    return panel;
+                }
+            }
+            if (component instanceof Container) {
+                JPanel nested = findAutomationActionRow((Container)component);
+                if (nested != null) return nested;
+            }
+        }
+        return null;
+    }
+
+    private static JButton findAutomationButton(Container parent, boolean start) {
+        for (Component component : parent.getComponents()) {
+            if (!(component instanceof JButton)) continue;
+            String text = ((JButton)component).getText();
+            if (text == null) continue;
+            String normalized = text.toLowerCase(java.util.Locale.ROOT);
+            if (start ? (text.contains("一键开启") || normalized.contains("start all"))
+                    : (text.contains("全部关闭") || normalized.contains("stop all"))) {
+                return (JButton)component;
+            }
+        }
+        return null;
+    }
+
+    private void refreshGameWindowControl() {
+        if (gameWindowButton == null) return;
+        boolean available = GameWindowController.isAvailable();
+        boolean hidden = available && GameWindowController.isHidden();
+        boolean english = I18n.english();
+        gameWindowButton.setText(english ? (hidden ? "Show game" : "Hide game")
+                : (hidden ? "显示游戏窗口" : "隐藏游戏窗口"));
+        gameWindowButton.setToolTipText(english
+                ? (hidden ? "Restore the hidden TaskBarHero window" : "Hide TaskBarHero; click again here to restore it")
+                : (hidden ? "点击恢复已隐藏的游戏窗口" : "隐藏 TaskBarHero；再次点击此处恢复"));
+        gameWindowButton.setEnabled(available && !gameWindowActionRunning.get());
+    }
+
+    private void toggleGameWindow() {
+        if (!gameWindowActionRunning.compareAndSet(false, true)) return;
+        refreshGameWindowControl();
+        new Thread(() -> {
+            String result = GameWindowController.toggle();
+            SwingUtilities.invokeLater(() -> {
+                gameWindowActionRunning.set(false);
+                refreshGameWindowControl();
+                if (!"SUCCESS|HIDDEN".equals(result) && !"SUCCESS|SHOWN".equals(result)) {
+                    boolean english = I18n.english();
+                    String message;
+                    if ("SUCCESS|SHOWN|BACKGROUND_RESET_FAILED".equals(result)) {
+                        message = english
+                                ? "The game window is visible, but background mode could not be reset. Reconnect the plugin or restart the game."
+                                : "游戏窗口已显示，但后台运行状态未恢复；请重新连接插件或重启游戏。";
+                    } else if ("FAILED|GAME_NOT_FOUND".equals(result)) {
+                        message = english ? "TaskBarHero window was not found." : "未检测到 TaskBarHero 窗口。";
+                    } else if ("FAILED|PLUGIN_NOT_CONNECTED".equals(result)) {
+                        message = english ? "The game plugin is not connected. The window was not hidden." : "游戏插件未连接，窗口未隐藏。请等待游戏连接后再试。";
+                    } else if ("FAILED|BACKGROUND_MODE_FAILED".equals(result)) {
+                        message = english ? "Could not enable background execution. The window was not hidden." : "无法启用游戏后台运行，窗口未隐藏。";
+                    } else if ("FAILED|WINDOW_HIDE_FAILED".equals(result)) {
+                        message = english ? "Could not hide the game window." : "隐藏游戏窗口失败。";
+                    } else {
+                        message = english ? "Could not restore the game window." : "恢复游戏窗口失败。";
+                    }
+                    JOptionPane.showMessageDialog(window, message,
+                            english ? "Game window" : "游戏窗口", JOptionPane.WARNING_MESSAGE);
+                }
+            });
+        }, "tbh-game-window-toggle").start();
+    }
+
+    private void exitAndRestore() {
+        GameWindowController.restoreOnExit();
+        exit.run();
     }
 
     private void handleClose() {
         String action = UiPreferences.closeAction();
-        if ("exit".equals(action)) exit.run();
+        if ("exit".equals(action)) exitAndRestore();
         else if ("tray".equals(action)) minimizeToTray();
         else showCloseDialog();
     }
@@ -142,7 +259,7 @@ public final class DesktopSupport {
             if (choice == 0) {
                 minimizeToTray();
             } else if (choice == 1) {
-                exit.run();
+                exitAndRestore();
             }
         } finally {
             closeDialogOpen = false;
@@ -243,7 +360,7 @@ public final class DesktopSupport {
             restore.addActionListener(e -> this.restoreWindow());
             JMenuItem quit = new JMenuItem(I18n.tr("退出助手"));
             quit.setFont(menuFont);
-            quit.addActionListener(e -> exit.run());
+            quit.addActionListener(e -> exitAndRestore());
             menu.add(restore);
             menu.addSeparator();
             menu.add(quit);
