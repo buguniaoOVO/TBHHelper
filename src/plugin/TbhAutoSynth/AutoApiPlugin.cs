@@ -30,8 +30,8 @@ public class AutoApiPlugin : BasePlugin
 	{
 		Logger = Log;
 		string text = (RuntimeHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(typeof(AutoApiPlugin).Assembly.Location))).ToLowerInvariant());
-		RuntimeSignature = "|plugin_version=1.3.63|api_protocol=" + 4 + "|plugin_sha256=" + text;
-		Logger.LogInfo("[插件版本] 1.3.63，协议=" + 4 + "，SHA256=" + text);
+		RuntimeSignature = "|plugin_version=" + Version + "|api_protocol=" + ApiProtocol + "|plugin_sha256=" + text;
+		Logger.LogInfo("[插件版本] " + Version + "，协议=" + ApiProtocol + "，SHA256=" + text);
 		ConsoleWindowHider.Hide();
 		try
 		{

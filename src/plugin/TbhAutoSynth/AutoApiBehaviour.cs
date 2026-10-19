@@ -296,7 +296,7 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 			_localApiServer = new LoopbackApiServer(HandleRequest);
 			int processId = Environment.ProcessId;
 			AutoApiPlugin.BridgeSignature = "|game_pid=" + processId + "|instance_id=" + _localApiServer.InstanceId + "|api_port=" + _localApiServer.Port;
-			_apiDiscoveryPath = ApiDiscoveryFile.Publish(processId, _localApiServer.Port, _localApiServer.InstanceId, AutoApiPlugin.RuntimeHash, "1.3.63", 4, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+			_apiDiscoveryPath = ApiDiscoveryFile.Publish(processId, _localApiServer.Port, _localApiServer.InstanceId, AutoApiPlugin.RuntimeHash, AutoApiPlugin.Version, AutoApiPlugin.ApiProtocol, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
 			AutoApiPlugin.Logger.LogInfo("[TBH Auto API] 监听中: http://127.0.0.1:" + _localApiServer.Port + "/api/；发现文件=" + _apiDiscoveryPath);
 		}
 		catch (Exception ex)
