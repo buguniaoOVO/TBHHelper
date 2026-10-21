@@ -18,6 +18,7 @@ public class DllApiClient {
     private static volatile String baseUrl = "http://" + apiAddress + "/api";
     private static volatile BridgeEndpoint discoveredEndpoint;
     private static long endpointReadAt;
+    private static int discoveredProcessId;
     private static volatile boolean initializationReady;
     private static volatile String initializationMessage = "正在初始化游戏 DLL。";
     private static final int CONNECT_TIMEOUT_MS = 5000;
@@ -70,25 +71,32 @@ public class DllApiClient {
 
     private static synchronized void refreshEndpoint() {
         long now = System.currentTimeMillis();
-        if (now - endpointReadAt < 1000L) return;
+        if (now - endpointReadAt < 2000L) return;
         endpointReadAt = now;
         int processId = com.lulu.core.DeployManager.runningGameProcessId();
-        BridgeEndpoint found = null;
-        String localAppData = System.getenv("LOCALAPPDATA");
-        if (processId > 0 && localAppData != null) {
-            found = BridgeEndpoint.read(java.nio.file.Paths.get(localAppData, "TBHHelper", "bridge",
-                    "game-" + processId + ".properties"), processId);
-        }
-        String address = found == null ? API_HOST + ":19090" : found.address();
-        boolean changed = !address.equals(apiAddress)
-                || (found != null && (discoveredEndpoint == null || !found.instanceId.equals(discoveredEndpoint.instanceId)));
+        BridgeEndpoint previous = discoveredEndpoint;
+        int previousProcessId = discoveredProcessId;
+        BridgeEndpoint found = processId > 0 ? BridgePortDiscovery.findForProcess(processId) : null;
         discoveredEndpoint = found;
+        discoveredProcessId = found == null ? processId : found.processId;
+        boolean changed = previousProcessId != discoveredProcessId
+                || (previous == null) != (found == null)
+                || (previous != null && found != null && (!previous.instanceId.equals(found.instanceId)
+                        || previous.port != found.port));
+        if (found != null) {
+            apiAddress = found.address();
+            baseUrl = "http://" + apiAddress + "/api";
+        }
         if (changed) {
-            apiAddress = address;
-            baseUrl = "http://" + address + "/api";
             compatiblePlugin = false;
             pacingConfiguredAt = clickPacingConfiguredAt = 0L;
-            System.out.println(">>> [接口发现] 游戏进程=" + processId + "，本机 API=" + address);
+            if (found == null) {
+                pluginUpdateRequired = false;
+                System.out.println(">>> [接口发现] 游戏 PID=" + processId + " 暂无可验证的本机 API 端口。");
+            } else {
+                System.out.println(">>> [接口发现] 游戏 PID=" + found.processId + "，本机 API=" + apiAddress
+                        + "，实例=" + found.instanceId);
+            }
         }
     }
 

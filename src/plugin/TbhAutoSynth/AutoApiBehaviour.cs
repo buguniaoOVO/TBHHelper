@@ -116,8 +116,6 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 
 	private LoopbackApiServer _localApiServer;
 
-	private string _apiDiscoveryPath;
-
 	private ConcurrentQueue<ApiTask> _apiTaskQueue = new ConcurrentQueue<ApiTask>();
 
 	private ApiTask _pendingFillTask;
@@ -284,7 +282,6 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 		if (_localApiServer != null)
 		{
 			_localApiServer.Dispose();
-			ApiDiscoveryFile.RemoveOwned(_apiDiscoveryPath, _localApiServer.InstanceId);
 			AutoApiPlugin.Logger.LogInfo("[TBH Auto API] 本机接口已关闭。");
 		}
 	}
@@ -296,8 +293,7 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 			_localApiServer = new LoopbackApiServer(HandleRequest);
 			int processId = Environment.ProcessId;
 			AutoApiPlugin.BridgeSignature = "|game_pid=" + processId + "|instance_id=" + _localApiServer.InstanceId + "|api_port=" + _localApiServer.Port;
-			_apiDiscoveryPath = ApiDiscoveryFile.Publish(processId, _localApiServer.Port, _localApiServer.InstanceId, AutoApiPlugin.RuntimeHash, AutoApiPlugin.Version, AutoApiPlugin.ApiProtocol, Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
-			AutoApiPlugin.Logger.LogInfo("[TBH Auto API] 监听中: http://127.0.0.1:" + _localApiServer.Port + "/api/；发现文件=" + _apiDiscoveryPath);
+			AutoApiPlugin.Logger.LogInfo("[TBH Auto API] 监听中: http://127.0.0.1:" + _localApiServer.Port + "/api/；游戏 PID=" + processId);
 		}
 		catch (Exception ex)
 		{
@@ -309,19 +305,10 @@ public class AutoApiBehaviour(IntPtr ptr) : MonoBehaviour(ptr)
 	[HideFromIl2Cpp]
 	private LocalApiResponse HandleRequest(string requestPath)
 	{
-		bool isEnabled = false;
 		try
 		{
 			string text = requestPath.ToLowerInvariant();
 			int num = 200;
-			ManualLogSource logger = AutoApiPlugin.Logger;
-			BepInExInfoLogInterpolatedStringHandler bepInExInfoLogInterpolatedStringHandler = new BepInExInfoLogInterpolatedStringHandler(15, 1, out isEnabled);
-			if (isEnabled)
-			{
-				bepInExInfoLogInterpolatedStringHandler.AppendLiteral("[API 请求接入] 路由: ");
-				bepInExInfoLogInterpolatedStringHandler.AppendFormatted(text);
-			}
-			logger.LogInfo(bepInExInfoLogInterpolatedStringHandler);
 			string text2 = "FAILED";
 			switch (text)
 			{

@@ -13,7 +13,7 @@ if(-not(Test-Path -LiteralPath $JavaPath)){throw '请用-JavaPath指定Java 17�
 $tbhClasses=Join-Path $tbhRoot 'build\classes-incremental'
 $tbhNative=Join-Path $tbhRoot 'build\native'
 New-Item -ItemType Directory -Path $tbhClasses,$tbhNative,(Join-Path $tbhRoot 'dist') -Force | Out-Null
-$tbhNames=@('core\GameWindowController','gui\DesktopSupport')
+$tbhNames=@('core\GameWindowController','gui\DesktopSupport','api\BridgeEndpoint','api\BridgePortDiscovery','api\DllApiClient')
 $tbhSources=@($tbhNames | ForEach-Object {Join-Path $tbhRoot ('src\java\com\lulu\'+$_+'.java')})
 & $JavaPath '-Dfile.encoding=UTF-8' -jar (Join-Path $tbhRoot 'tools\ecj.jar') -encoding UTF-8 -source 8 -target 8 -cp $tbhBase -d $tbhClasses @tbhSources
 if($LASTEXITCODE -ne 0){throw 'Java compilation failed'}
