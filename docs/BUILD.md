@@ -18,4 +18,6 @@ Python 不在 PATH 时，添加 `-PythonPath`。编译插件：
 
 Java 构建使用 ECJ 编译维护模块，并将资源和编译类替换进基线 JAR。游戏 DLL 从安装目录引用，构建脚本不复制游戏文件到仓库。
 
-BepInEx 包采用官方 [6.0.0-be.785 Windows x64 IL2CPP 构建](https://builds.bepinex.dev/projects/bepinex_be)。首次安装说明见 [官方文档](https://docs.bepinex.dev/master/articles/user_guide/installation/unity_il2cpp.html)。
+BepInEx 包采用官方 [6.0.0-be.785 Windows x64 IL2CPP 构建](https://builds.bepinex.dev/projects/bepinex_be)。首次安装说明见 [官方文档](https://docs.bepinex.dev/master/articles/user_guide/installation/unity_il2cpp.html)。## 发布前校对
+
+每次发布新版后，同步更新根目录 `README.md` 首页下载链接和“首次安装”步骤中的 Releases 链接，统一指向已经公开的新版本 tag。发布前先完成测试；发布后核对 README 首页、下载页与最新 Release 版本一致。
