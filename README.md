@@ -7,7 +7,7 @@
 
 TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自动合成、腐蚀、隐藏游戏窗口，以及带道具图片和市场参考价的仓库页面。
 
-**[下载 v1.3.72](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.72)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.74](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.74)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![运行概览](docs/images/01-overview.png)
 
@@ -20,6 +20,7 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 | 瘟疫之地 | 检测当前地图，设置强度 1～20、检查间隔，以及自动腐蚀规则 |
 | 仓库 | 读取储物箱道具，图片展示、重复合并、搜索筛选、价格排序与参考估值 |
 | 统计 | 普通、稀有、BOSS 三类宝箱；掉落记录、品质数量与比例、出货合并 |
+| 账号 | 本机与 Sandboxie 多开实例，账号级开关、窗口控制和限帧 |
 | 日志 / 设置 | 运行记录、保留时间、连接与运行环境配置 |
 
 ### 界面语言与关闭方式
@@ -73,7 +74,7 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 首次安装：
 
-1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.72) 下载 Windows x64 ZIP，完整解压到任意可写目录。
+1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.74) 下载 Windows x64 ZIP，完整解压到任意可写目录。
 2. 双击文件夹里的 `TBH助手.exe` 打开助手，界面显示当前版本。
 3. **先退出游戏**，启动助手。助手按已保存路径、运行中的游戏和 Steam 库识别目录，并自动同步当前包的 DLL；无法识别时，在设置页填写游戏目录。
 4. 自动初始化会核验 DLL；缺少运行环境时部署附带的环境。设置页“一键部署”可以重新执行完整文件校验。
