@@ -7,7 +7,7 @@
 
 TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自动合成、腐蚀、隐藏游戏窗口，以及带道具图片和市场参考价的仓库页面。
 
-**[下载 v1.3.71](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.71)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.72](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.72)** · [快速上手](docs/QUICKSTART.md) · [论坛介绍帖与配图](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![运行概览](docs/images/01-overview.png)
 
@@ -42,9 +42,9 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 ![合成与统一节奏](docs/images/02-synthesis.png)
 
-### 铭文材料剔除后继续腐蚀
+### 腐蚀适配新版本：锁定圣物与供奉材料
 
-腐蚀设置分别控制铭文卷轴和纪念币排除。助手按道具名称识别这两类物品，逐件退回；雕刻材料、其他材料和装备保留参与腐蚀。填充会依次选择装备和材料类别，用第二类补充空位，腐蚀允许剩余 **1～9 件**；普通合成仍要求 9 件。
+腐蚀设置分别控制铭文卷轴和纪念币排除，并新增“锁定圣物与圣物容器”“锁定供奉材料”选项。启用后，自动腐蚀会识别并锁定这些物品、跳过腐蚀；需要消耗时可取消对应选项。助手按道具名称识别这两类物品，逐件退回；雕刻材料、其他材料和装备保留参与腐蚀。填充会依次选择装备和材料类别，用第二类补充空位，腐蚀允许剩余 **1～9 件**；普通合成仍要求 9 件。
 
 本机运行日志已观察到剔除后剩余 7 件、4 件的批次，均收到成功回包。此记录对应当前游戏版本，后续游戏更新仍需重新核对接口。
 
@@ -73,7 +73,7 @@ TaskBarHero 的 Windows 桌面助手。提供后台开箱、仓库整理、自�
 
 首次安装：
 
-1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.71) 下载 Windows x64 ZIP，完整解压到任意可写目录。
+1. 从 [Releases](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.72) 下载 Windows x64 ZIP，完整解压到任意可写目录。
 2. 双击文件夹里的 `TBH助手.exe` 打开助手，界面显示当前版本。
 3. **先退出游戏**，启动助手。助手按已保存路径、运行中的游戏和 Steam 库识别目录，并自动同步当前包的 DLL；无法识别时，在设置页填写游戏目录。
 4. 自动初始化会核验 DLL；缺少运行环境时部署附带的环境。设置页“一键部署”可以重新执行完整文件校验。
