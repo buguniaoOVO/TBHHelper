@@ -1,3 +1,13 @@
+# 构建范围
+
+## 当前直连版
+
+v1.3.81 是 Python 3.14 与 Frida 直连维护版。maintenance/direct-connect 保存本次维护的界面、连接脚本和归档补丁工具，补丁构建需要对应的既有 PyInstaller 基线 EXE、物品字典、图标素材与 rcedit 工具。这些文件不构成可独立从零构建的完整工程；请通过 Releases 获取成品。
+
+根目录 build.ps1 与 src/java、src/plugin 仍对应历史 Java 插件版，不生成当前直连版本。个人配置、账号信息、日志、市场缓存和测试快照均未纳入源码。
+
+## 历史插件版构建记录
+
 # 构建说明
 
 环境：Windows x64、Java 17 或更高、Python 3、Windows .NET Framework C# 编译器。编译游戏插件另需 .NET SDK，以及游戏首次加载 BepInEx 后生成的 interop 程序集。
