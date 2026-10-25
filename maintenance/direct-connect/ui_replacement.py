@@ -664,7 +664,13 @@ def _build_ui(self):
         page = getattr(self, '_ui_pages', {}).get(key)
         if page is None:
             return
-        page.tkraise()
+        previous_key = getattr(self, '_current_ui_page', None)
+        if previous_key == key:
+            return
+        previous_page = self._ui_pages.get(previous_key)
+        if previous_page is not None:
+            previous_page.grid_remove()
+        page.grid()
         self._current_ui_page = key
         title, subtitle = self._ui_page_titles.get(key, (key, ''))
         self.page_title_var.set(title)
@@ -682,7 +688,6 @@ def _build_ui(self):
         elif key == 'magic':
             refresh_corrosion_status()
         elif key == 'stats':
-            self.refresh_history_summary()
             refresh_box_counts()
         elif key == 'warehouse':
             refresh_warehouse_accounts()
@@ -837,6 +842,12 @@ def _build_ui(self):
         except Exception:
             return '时间未知'
 
+    def drop_item_catalog(item_id):
+        cache = self.__dict__.setdefault('_drop_item_catalog', {})
+        if item_id not in cache:
+            cache[item_id] = catalog_item_or_family(item_id)
+        return cache[item_id]
+
     def drop_item_details(item):
         if not isinstance(item, dict):
             return None
@@ -844,7 +855,7 @@ def _build_ui(self):
         if count <= 0:
             return None
         item_id = safe_int(item.get('itemId') or item.get('itemKey'), 0)
-        catalog = catalog_item_or_family(item_id)
+        catalog = drop_item_catalog(item_id)
         raw_grade = item.get('grade')
         if raw_grade is None or raw_grade == '':
             raw_grade = item.get('gradeValue')
@@ -858,7 +869,7 @@ def _build_ui(self):
     def is_drop_soulstone(item_id, name):
         if item_id in (190001, 190002, 190003, 190004, 190102, 190103, 190104):
             return True
-        catalog = catalog_item_or_family(item_id)
+        catalog = drop_item_catalog(item_id)
         return ('灵魂石' in name or '灵魂石' in str(catalog.get('zh') or '') or
                 'soulstone' in str(catalog.get('en') or '').lower())
 
@@ -995,8 +1006,16 @@ def _build_ui(self):
         except (OSError, ValueError, OverflowError):
             return '时间未知'
 
-    def refresh_box_counts():
+    def refresh_box_counts(force=False):
         now_ms = int(time.time() * 1000)
+        records = getattr(self, 'history_records', ())
+        if records is None:
+            records = ()
+        token = (id(records), len(records), str(records[-1].get('eventId') or '') if records else '', now_ms // 60000)
+        retry_due = bool(getattr(self, '_rare_drop_pending', {})) and time.monotonic() >= getattr(self, '_rare_drop_retry_after', 0)
+        if not force and getattr(self, '_stats_render_token', None) == token and not retry_due:
+            return
+        self._stats_render_token = token
         day_ago_ms = now_ms - 24 * 60 * 60 * 1000
         total = 0
         recent = 0
@@ -1033,25 +1052,27 @@ def _build_ui(self):
                     else:
                         summary.insert('','end',iid=iid,values=values,tags=(f'drop_grade_{grade}',))
                     color = GRADE_COLORS.get('传奇' if grade=='传说' else grade,colors['muted'])
-                    summary.tag_configure(f'drop_grade_{grade}',foreground=color)
+                    if not getattr(summary, '_stats_grade_tags_set', False):
+                        summary.tag_configure(f'drop_grade_{grade}',foreground=color)
+                summary._stats_grade_tags_set = True
                 self.drop_grade_status_var.set(f'有效掉落总数：{drop_total:,} 件 · 已跳过灵魂石 {soulstone_total:,} 件'
                     + (f' · 未识别品质 {excluded:,} 件不计入' if excluded else ''))
             ordered = sorted(grouped.items(), key=lambda entry: (
                 -grade_rank.get(entry[0][1], -1), -entry[1]['count'], entry[0][2].lower()))
             drop_rows = []
             for (item_id, grade, name), row in ordered:
-                probability = row['probabilityCount'] * 100 / drop_total if drop_total else 0.0
-                probability_text = '不计入' if is_drop_soulstone(item_id, name) else f'{probability:.2f}%'
-                drop_rows.append(((grade, name, row['count'], probability_text,
+                drop_rows.append(((grade, name, row['count'],
                     row['map'] or '未知地图', drop_row_time(row)), grade))
             render_drop_table(tree, drop_rows)
             color_map = dict(GRADE_COLORS)
             color_map['传说'] = GRADE_COLORS.get('传奇', '#B87230')
-            for grade, color in color_map.items():
-                tree.tag_configure(f'drop_grade_{grade}', foreground=color)
+            if not getattr(tree, '_stats_grade_tags_set', False):
+                for grade, color in color_map.items():
+                    tree.tag_configure(f'drop_grade_{grade}', foreground=color)
+                tree._stats_grade_tags_set = True
             status = getattr(self, 'drop_records_status_var', None)
             if status is not None:
-                status.set(f'已记录 {recorded_total:,} 件掉落 · {len(grouped)} 种物品 · 灵魂石保留明细，概率列标为“不计入”')
+                status.set(f'已记录 {recorded_total:,} 件掉落 · {len(grouped)} 种物品 · 相同物品叠加数量，显示最近掉落地图与时间')
         rare_tree = getattr(self, 'rare_drop_tree', None)
         if rare_tree is not None:
             rare_records = sync_rare_drop_records(getattr(self, 'history_records', []))
@@ -1064,6 +1085,15 @@ def _build_ui(self):
             self.rare_drop_status_var.set(
                 f'珍品累计 {sum(row["count"] for row in grouped.values()):,} 件 · {len(grouped)} 种物品 · '
                 + (f'{pending} 条待保存，自动重试中' if pending else '已保存至本地，按最近掉落时间排序'))
+
+    def request_statistics_refresh():
+        if getattr(self, 'shutting_down', False) or getattr(self, '_stats_refresh_after', None) is not None:
+            return
+        def finish():
+            self._stats_refresh_after = None
+            if not getattr(self, 'shutting_down', False):
+                refresh_box_counts()
+        self._stats_refresh_after = self.after(200, finish)
 
     def add_box_count_record(pid, payload):
         if not isinstance(payload, dict) or payload.get('success') is not True:
@@ -1127,7 +1157,7 @@ def _build_ui(self):
                 'mapName': str(payload.get('mapName') or ''), 'produced': produced,
             }
             append_record(loot_record)
-        self.refresh_history_summary()
+        request_statistics_refresh()
 
     def warehouse_account_options():
         try:
@@ -1630,15 +1660,19 @@ def _build_ui(self):
     self._ui_frame_busy = set()
     self._ui_frame_results = {}
     self._ui_frame_loaded = set()
+    self._ui_window_pending = {}
 
     def sync_window_controls():
         self._ui_game_windows_hidden = bool(self._ui_hidden_game_windows)
         self.hide_game_button.configure(text='显示游戏窗口' if self._ui_game_windows_hidden else '隐藏游戏窗口')
         for pid, button in self._account_window_buttons.items():
             if button.winfo_exists():
-                button.configure(text='显示窗口' if pid in self._ui_hidden_game_windows else '隐藏窗口')
+                pending = self._ui_window_pending.get(pid)
+                button.configure(text=('隐藏中…' if pending['hide'] else '恢复中…') if pending else
+                    ('显示窗口' if pid in self._ui_hidden_game_windows else '隐藏窗口'),
+                    state='disabled' if pending else 'normal')
 
-    def set_process_windows(pid, hide):
+    def set_process_windows(pid, hide, closing=False):
         from ctypes import wintypes
         pid = int(pid)
         user32 = ctypes.WinDLL('user32', use_last_error=True)
@@ -1648,12 +1682,17 @@ def _build_ui(self):
             function = getattr(user32, name)
             function.argtypes = [wintypes.HWND]
             function.restype = wintypes.BOOL
-        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-        user32.ShowWindow.restype = wintypes.BOOL
+        user32.ShowWindowAsync.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.ShowWindowAsync.restype = wintypes.BOOL
         callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
         user32.EnumWindows.restype = wintypes.BOOL
         count = 0
+        if pid in self._ui_window_pending:
+            if not closing:
+                return 0
+            self._ui_window_pending.pop(pid, None)
+        requested = {}
         def belongs_to_process(hwnd):
             current_pid = wintypes.DWORD()
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(current_pid))
@@ -1663,12 +1702,11 @@ def _build_ui(self):
             def visit(hwnd, _lparam):
                 nonlocal count
                 if belongs_to_process(hwnd) and user32.IsWindowVisible(hwnd):
-                    tracked[int(hwnd)] = bool(user32.IsIconic(hwnd))
-                    user32.ShowWindow(hwnd, 0)
-                    if not user32.IsWindowVisible(hwnd):
+                    minimized = bool(user32.IsIconic(hwnd))
+                    if user32.ShowWindowAsync(hwnd, 0):
+                        tracked[int(hwnd)] = minimized
+                        requested[int(hwnd)] = minimized
                         count += 1
-                    else:
-                        tracked.pop(int(hwnd), None)
                 return True
             callback = callback_type(visit)
             if not user32.EnumWindows(callback, 0):
@@ -1676,17 +1714,45 @@ def _build_ui(self):
             if not tracked:
                 self._ui_hidden_game_windows.pop(pid, None)
         else:
-            tracked = self._ui_hidden_game_windows.pop(pid, {})
-            remaining = {}
-            for hwnd, was_minimized in tracked.items():
+            tracked = self._ui_hidden_game_windows.get(pid, {})
+            for hwnd, was_minimized in list(tracked.items()):
                 if belongs_to_process(hwnd):
-                    user32.ShowWindow(hwnd, 7 if was_minimized else 8)
-                    if user32.IsWindowVisible(hwnd):
+                    if user32.ShowWindowAsync(hwnd, 7 if was_minimized else 8):
+                        requested[hwnd] = was_minimized
                         count += 1
+                else:
+                    tracked.pop(hwnd, None)
+            if not tracked:
+                self._ui_hidden_game_windows.pop(pid, None)
+        if requested and not closing:
+            pending = {'hide': hide, 'handles': requested, 'deadline': time.monotonic() + 2}
+            self._ui_window_pending[pid] = pending
+
+            def verify():
+                if getattr(self, 'shutting_down', False):
+                    return
+                if self._ui_window_pending.get(pid) is not pending:
+                    return
+                tracked = self._ui_hidden_game_windows.get(pid, {})
+                waiting = []
+                for hwnd in requested:
+                    if not belongs_to_process(hwnd):
+                        tracked.pop(hwnd, None)
+                    elif bool(user32.IsWindowVisible(hwnd)) == (not hide):
+                        if not hide:
+                            tracked.pop(hwnd, None)
                     else:
-                        remaining[hwnd] = was_minimized
-            if remaining:
-                self._ui_hidden_game_windows[pid] = remaining
+                        waiting.append(hwnd)
+                if not tracked:
+                    self._ui_hidden_game_windows.pop(pid, None)
+                if waiting and time.monotonic() < pending['deadline']:
+                    self.after(100, verify)
+                    return
+                self._ui_window_pending.pop(pid, None)
+                if waiting:
+                    self.thread_log(f'[进程 {pid}] 窗口状态确认超时，可再次操作；其他账号继续处理。')
+                sync_window_controls()
+            verify()
         sync_window_controls()
         return count
 
@@ -1697,7 +1763,7 @@ def _build_ui(self):
             if not count:
                 messagebox.showinfo('游戏窗口', f'进程 {pid} 当前没有可操作的游戏窗口。', parent=self)
             else:
-                self.thread_log(f'[进程 {pid}] 已' + ('隐藏' if hide else '显示') + f' {count} 个窗口。')
+                self.thread_log(f'[进程 {pid}] 已提交' + ('隐藏' if hide else '显示') + f'窗口请求，共 {count} 个。')
         except Exception as exc:
             messagebox.showerror('游戏窗口', str(exc), parent=self)
 
@@ -1775,7 +1841,7 @@ def _build_ui(self):
         try:
             for pid in list(self._ui_hidden_game_windows) if hidden else pids:
                 found += set_process_windows(pid, not hidden)
-            self.thread_log(('已显示' if hidden else '已隐藏') + f' {found} 个游戏窗口；游戏进程仍在运行。')
+            self.thread_log(('已提交显示' if hidden else '已提交隐藏') + f' {found} 个游戏窗口请求；游戏进程仍在运行。')
         except Exception as exc:
             messagebox.showerror('游戏窗口', str(exc), parent=self)
 
@@ -2051,6 +2117,7 @@ def _build_ui(self):
     def scrollable_page(key):
         shell = ttk.Frame(self.page_host, style='TFrame')
         shell.grid(row=0, column=0, sticky='nsew')
+        shell.grid_remove()
         shell.columnconfigure(0, weight=1)
         shell.rowconfigure(0, weight=1)
         canvas = tk.Canvas(shell, background=colors['background'], highlightthickness=0, borderwidth=0)
@@ -2247,6 +2314,7 @@ def _build_ui(self):
             self.account_count_var.set(f'已连接 {count} 个账号')
         except Exception:
             pass
+        sync_window_controls()
     self.refresh_account_cards = refresh_account_cards
     ttk.Button(account_actions_body, text='刷新实例', style='Utility.TButton', command=refresh_account_cards).pack(side='left', padx=4)
 
@@ -2660,20 +2728,20 @@ def _build_ui(self):
     stats_style = ttk.Style(self)
     self._stats_tab_images = []
     for background, underline in (('#FFFFFF', '#FFFFFF'), ('#EAF3F5', colors['accent'])):
-        image = tk.PhotoImage(master=self, width=3, height=4)
-        image.put(background, to=(0, 0, 3, 4))
-        image.put(underline, to=(0, 2, 3, 4))
+        image = tk.PhotoImage(master=self, width=128, height=4)
+        image.put(background, to=(0, 0, 128, 4))
+        image.put(underline, to=(0, 2, 128, 4))
         self._stats_tab_images.append(image)
-    stats_style.element_create('StatsNotebook.client', 'image', self._stats_tab_images[0],
-        border=0, sticky='nsew')
     stats_style.element_create('StatsTab.background', 'image', self._stats_tab_images[0],
         ('selected', self._stats_tab_images[1]), border=(0, 0, 0, 2), sticky='nsew')
-    stats_style.layout('Stats.TNotebook', [('StatsNotebook.client', {'sticky': 'nsew'})])
+    stats_style.layout('Stats.TNotebook', [('Notebook.client', {'sticky': 'nsew'})])
     stats_style.layout('Stats.TNotebook.Tab', [('StatsTab.background', {'sticky': 'nsew', 'children': [
         ('Notebook.padding', {'side': 'top', 'sticky': 'nsew', 'children': [
             ('Notebook.focus', {'side': 'top', 'sticky': 'nsew', 'children': [
                 ('Notebook.label', {'side': 'top', 'sticky': ''})]})]})]})])
-    stats_style.configure('Stats.TNotebook', tabmargins=(0, 0, 0, 0), borderwidth=0)
+    stats_style.configure('Stats.TNotebook', tabmargins=(0, 0, 0, 0), borderwidth=0,
+        background=colors['background'], bordercolor=colors['background'],
+        lightcolor=colors['background'], darkcolor=colors['background'])
     tab_options = {'font': ('Microsoft YaHei UI', 10), 'padding': (16, 9)}
     self._ui_base_styles['Stats.TNotebook.Tab'] = dict(tab_options)
     stats_style.configure('Stats.TNotebook.Tab', **tab_options, foreground=colors['muted'])
@@ -2708,9 +2776,9 @@ def _build_ui(self):
     drop_records_body.rowconfigure(1, weight=1)
     self.drop_records_status_var = tk.StringVar(value='等待游戏掉落数据')
     ttk.Label(drop_records_body, textvariable=self.drop_records_status_var, style='PanelMuted.TLabel', wraplength=960).grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 6))
-    drop_columns = ('品质', '物品', '数量', '概率', '最近地图', '最近掉落')
+    drop_columns = ('品质', '物品', '数量', '最近地图', '最近掉落')
     self.drop_records_tree = ttk.Treeview(drop_records_body, columns=drop_columns, show='headings', height=10, style='Stats.Treeview')
-    for column, width in zip(drop_columns, (90, 240, 75, 85, 150, 175)):
+    for column, width in zip(drop_columns, (90, 300, 75, 180, 190)):
         self.drop_records_tree.heading(column, text=column)
         self.drop_records_tree.column(column, width=width, minwidth=60, stretch=column == '物品')
     self.drop_records_tree.grid(row=1, column=0, sticky='nsew')
@@ -3054,7 +3122,7 @@ def _build_ui(self):
     self.on_connected = on_connected_with_corrosion_status_probe
     self.runtime_enabled = lambda cfg=None: bool(original_runtime_enabled(cfg) or
         (cfg or self.cfg).get('autoPlagueMapEnabled') or (cfg or self.cfg).get('showDropPreview'))
-    self.refresh_history_summary = refresh_box_counts
+    self.refresh_history_summary = request_statistics_refresh
     self.add_activity_record = add_box_count_record
     self._ui_refresh_drop_statistics = refresh_box_counts
     self._ui_refresh_warehouse_accounts = refresh_warehouse_accounts
@@ -3572,6 +3640,42 @@ def _build_ui(self):
     # Keep callbacks and feature controls accessible to existing controller methods.
     self._dashboard_sections.extend((header, self.page_host))
 
+    # Window size changes reflow the current page. Font sizes stay at the
+    # Windows DPI scale, avoiding a full Ttk font/layout rebuild while dragging.
+    self.resizable(True, True)
+    self._ui_responsive_header_mode = None
+
+    def apply_responsive_layout(_override=None):
+        self._ui_resize_after_id = None
+        if getattr(self, 'shutting_down', False):
+            return
+        self._ui_scale = 1.0
+        width = self.winfo_width()
+        mode = 'wide' if width >= 1400 else 'compact' if width >= 1150 else 'narrow'
+        if mode != self._ui_responsive_header_mode:
+            self._ui_responsive_header_mode = mode
+            top_tools.grid_configure(row=0 if mode == 'wide' else 1,
+                column=1 if mode == 'wide' else 0, columnspan=1 if mode == 'wide' else 2,
+                rowspan=1, sticky='e' if mode == 'wide' else 'w',
+                padx=(14, 0) if mode == 'wide' else (0, 0), pady=(0, 0) if mode == 'wide' else (8, 0))
+            for index, widget in enumerate((self.stop_all_button, self.hide_game_button, self.exit_button)):
+                widget.grid_configure(row=1 if mode == 'narrow' else 0,
+                    column=index if mode == 'narrow' else index + 3)
+        if getattr(self, '_current_ui_page', None) == 'warehouse':
+            schedule_warehouse_card_draw()
+
+    def on_responsive_resize(event):
+        if event.widget is not self or getattr(self, 'shutting_down', False):
+            return
+        if self._ui_resize_after_id is not None:
+            self.after_cancel(self._ui_resize_after_id)
+        self._ui_resize_after_id = self.after(80, apply_responsive_layout)
+
+    self._capture_scalable_widgets = lambda: setattr(self, '_ui_widget_metrics', [])
+    self._apply_dashboard_scale = apply_responsive_layout
+    self._on_dashboard_resize = on_responsive_resize
+    self.after_idle(apply_responsive_layout)
+
     # Internal UI callbacks are attached as bound methods so the rest of the
     # existing controller remains byte-for-byte unchanged.
     self.__dict__['_ui_select_page_callback'] = self._ui_select_page
@@ -3580,7 +3684,7 @@ def _build_ui(self):
     def close_and_restore_windows():
         for pid in list(self._ui_hidden_game_windows):
             try:
-                set_process_windows(pid, False)
+                set_process_windows(pid, False, closing=True)
             except Exception as exc:
                 self.thread_log(f'[进程 {pid}] 退出时恢复窗口失败：{exc}')
         original_close()

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import runpy
+import dis
+import marshal
 import subprocess
 import sys
 import tempfile
 import zlib
 from pathlib import Path
+
+BUILD_VERSION = '1.3.82'
 
 
 def main() -> int:
@@ -27,6 +31,16 @@ def main() -> int:
     encoded = original[base + entry.offset:base + entry.offset + entry.compressed_size]
     raw_module = zlib.decompress(encoded) if entry.compressed else encoded
     patched_module = builder["patch_module"](raw_module, ui_path.read_text(encoding="utf-8"))
+    root = marshal.loads(patched_module)
+    instructions = list(dis.get_instructions(root))
+    version_store = next(index for index, instruction in enumerate(instructions)
+                         if instruction.opname == 'STORE_NAME' and instruction.argval == 'APP_VERSION')
+    version_load = instructions[version_store - 1]
+    if version_load.opname != 'LOAD_CONST' or not isinstance(version_load.argval, str):
+        raise RuntimeError('APP_VERSION is not a literal string')
+    constants = list(root.co_consts)
+    constants[version_load.arg] = BUILD_VERSION
+    patched_module = marshal.dumps(root.replace(co_consts=tuple(constants)))
     data_replacements = {
         "auto_synthesis_frida.js": agent_path.read_bytes(),
         "taskbarhero_items_i18n.json": catalog_path.read_bytes(),
@@ -47,7 +61,7 @@ def main() -> int:
         stub.write_bytes(rebuilt[:archive_base])
         resource_command = [str(builder_path.parent / "rcedit-x64.exe"), str(stub),
                             "--set-icon", str(builder_path.parent / "tbh-brand.ico"),
-                            "--set-file-version", "1.3.81.0", "--set-product-version", "1.3.81.0"]
+                            "--set-file-version", BUILD_VERSION + '.0', "--set-product-version", BUILD_VERSION + '.0']
         for key, value in {"FileDescription": "TBH助手", "ProductName": "TBH助手",
                            "InternalName": "TBHHelper", "OriginalFilename": "TBH助手.exe",
                            "CompanyName": "阿丸AWan", "LegalCopyright": "by 阿丸AWan"}.items():

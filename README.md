@@ -1,12 +1,18 @@
 # TBH助手
 
-TaskBarHero Windows 托管助手，维护署名 **by 阿丸AWan**。当前发布版 **v1.3.81** 使用 Frida 连接正在运行的游戏进程，支持本机与 Sandboxie 多开实例，无需向游戏目录部署插件。
+TaskBarHero Windows 托管助手，维护署名 **by 阿丸AWan**。当前发布版 **v1.3.82** 使用 Frida 连接正在运行的游戏进程，支持本机与 Sandboxie 多开实例，无需向游戏目录部署插件。
 
-**[下载 v1.3.81 Windows x64 ZIP](https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.81/TBHHelper-v1.3.81-win-x64.zip)** · [更新公告](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.81) · [使用说明](docs/QUICKSTART.md) · [介绍帖](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.82 Windows x64 ZIP](https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.82/TBHHelper-v1.3.82-win-x64.zip)** · [更新公告](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.82) · [使用说明](docs/QUICKSTART.md) · [介绍帖](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![账号与进程控制](docs/images/02-accounts-redacted.png)
 
-## 本次更新
+## 本次响应修复
+
+v1.3.82 修复上一版本统计标签页背景平铺导致的大量重绘。窗口拖动保持固定 DPI 字体，按窗口宽度调整工具栏；导航页只布局当前页面。统计刷新增加缓存并合并连续掉落事件。
+
+恢复游戏窗口改为异步投递，每个账号独立确认；超时后保留重试入口，其他账号继续处理。掉落记录删除概率列，品质概率汇总保留。游戏本体卡死尚未复现，此版本修复已确认的助手重绘与跨进程窗口等待问题。
+
+## 直连版功能
 
 - 重写连接逻辑，直接连接游戏进程，按账号管理本机与 Sandboxie 实例。
 - 增加各账号独立锁帧、隐藏与显示窗口；锁帧用于降低后台渲染开销，实际占用随机器与场景变化。
@@ -53,7 +59,7 @@ TaskBarHero Windows 托管助手，维护署名 **by 阿丸AWan**。当前发布
 
 ### 掉落统计
 
-品质概率按“各品质有效掉落数量 ÷ 有效掉落总数 × 100%”计算。灵魂石与被污染的灵魂石保留在明细中，概率列显示“不计入”；装备、首饰及材料合成产物不计入掉落统计。概率是已记录样本占比，不能视作官方掉率。
+品质概率按“各品质有效掉落数量 ÷ 有效掉落总数 × 100%”计算。灵魂石与被污染的灵魂石保留在掉落记录中，详情表仅显示品质、物品、数量、最近地图与最近掉落时间；装备、首饰及材料合成产物不计入掉落统计。概率是已记录样本占比，不能视作官方掉率。
 
 珍品记录额外保存超凡、天界、神圣、宇宙品质掉落。相同物品叠加数量，展示最近掉落时间与地图。珍品记录保存在本地独立文件，可在助手重启后恢复。
 
@@ -67,7 +73,7 @@ TaskBarHero Windows 托管助手，维护署名 **by 阿丸AWan**。当前发布
 3. 检查对应账号及各项规则，再点击“一键开启”。可使用“全部关闭”停止助手自动化。
 4. 旧版用户先退出助手，再覆盖程序文件；保留自己的配置、历史与缓存文件。请备份旧目录。
 
-v1.3.81 无需部署 BepInEx、Java 或观星插件。旧版曾安装的游戏插件不由本次压缩包自动清理；旧插件仍运行时应先停用旧助手，避免重复操作。
+v1.3.82 无需部署 BepInEx、Java 或观星插件。旧版曾安装的游戏插件不由本次压缩包自动清理；旧插件仍运行时应先停用旧助手，避免重复操作。
 
 ## 数据与范围
 
@@ -77,7 +83,7 @@ Windows 10/11 x64；游戏更新可能改变进程接口。请遵守游戏和平
 
 ## 源码与构建范围
 
-本次直连版维护脚本位于 `maintenance/direct-connect`，属于针对既有 Python 3.14 打包程序的维护补丁。仓库原有 `src/java`、`src/plugin` 与根目录 `build.ps1` 保留为历史插件版代码，不能用来构建 v1.3.81。详见 [构建说明](docs/BUILD.md)。
+本次直连版维护脚本位于 `maintenance/direct-connect`，属于针对既有 Python 3.14 打包程序的维护补丁。仓库原有 `src/java`、`src/plugin` 与根目录 `build.ps1` 保留为历史插件版代码，不能用来构建 v1.3.82。详见 [构建说明](docs/BUILD.md)。
 
 既有代码和第三方组件保留各自权利与许可，参见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE.md)。
 

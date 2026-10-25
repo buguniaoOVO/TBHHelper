@@ -1,7 +1,7 @@
 # TBH助手直连版使用说明
 
-当前版本 v1.3.81，Windows x64。下载地址：
-https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.81/TBHHelper-v1.3.81-win-x64.zip
+当前版本 v1.3.82，Windows x64。下载地址：
+https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.82/TBHHelper-v1.3.82-win-x64.zip
 
 ## 首次运行
 
