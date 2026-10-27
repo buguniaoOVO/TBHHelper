@@ -100,13 +100,24 @@ def patch_module(raw_module: bytes, replacement_source: str) -> bytes:
     if 'main' in replacement_functions:
         if original_main is None:
             raise ValueError('Original main entry point was not found')
+        entry_main = original_main
+        seen_main_codes = set()
+        while {'SetCurrentProcessExplicitAppUserModelID', 'FunctionType'} <= set(original_main.co_names):
+            if id(original_main) in seen_main_codes:
+                raise ValueError('Startup wrapper contains a code-object cycle')
+            seen_main_codes.add(id(original_main))
+            inner = [value for value in original_main.co_consts
+                     if isinstance(value, CodeType) and value.co_name == 'main']
+            if len(inner) != 1:
+                raise ValueError('Existing branding wrapper has no unique original entry point')
+            original_main = inner[0]
         wrapper = replacement_functions['main']
         sentinel = '__TBH_ORIGINAL_MAIN_CODE__'
         if sentinel not in wrapper.co_consts:
             raise ValueError('Branding wrapper is missing its original-main placeholder')
         wrapper = wrapper.replace(co_consts=tuple(original_main if value == sentinel else value
                                                   for value in wrapper.co_consts))
-        new_root_consts[new_root_consts.index(original_main)] = wrapper
+        new_root_consts[new_root_consts.index(entry_main)] = wrapper
     for index, obj in enumerate(new_root_consts):
         if obj is app_code:
             new_root_consts[index] = new_app_code

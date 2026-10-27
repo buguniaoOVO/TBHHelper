@@ -2,7 +2,7 @@
 
 ## 当前直连版
 
-v1.3.82 是 Python 3.14 与 Frida 直连维护版。maintenance/direct-connect 保存本次维护的界面、连接脚本和归档补丁工具，补丁构建需要对应的既有 PyInstaller 基线 EXE、物品字典、图标素材与 rcedit 工具。这些文件不构成可独立从零构建的完整工程；请通过 Releases 获取成品。
+v1.3.85 是 Python 3.14 与 Frida 直连维护版。maintenance/direct-connect 保存本次维护的界面、连接脚本和归档补丁工具，补丁构建需要对应的既有 PyInstaller 基线 EXE、物品字典、图标素材与 rcedit 工具。这些文件不构成可独立从零构建的完整工程；请通过 Releases 获取成品。
 
 根目录 build.ps1 与 src/java、src/plugin 仍对应历史 Java 插件版，不生成当前直连版本。个人配置、账号信息、日志、市场缓存和测试快照均未纳入源码。
 

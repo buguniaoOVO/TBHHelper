@@ -1,7 +1,7 @@
 # TBH助手直连版使用说明
 
-当前版本 v1.3.82，Windows x64。下载地址：
-https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.82/TBHHelper-v1.3.82-win-x64.zip
+当前版本 v1.3.85，Windows x64。下载地址：
+https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.85/TBHHelper-v1.3.85-win-x64.zip
 
 ## 首次运行
 
@@ -33,3 +33,8 @@ https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.82/TBHHelper-v1.
 https://github.com/buguniaoOVO/TBHHelper/issues
 
 by 阿丸AWan
+
+
+## 账号页状态
+
+连接后，账号页显示每个进程的地图、交易船槽位总数、占用数量及逐槽冷却状态。每格余时读取成功时显示倒计时。账号页每15秒只读刷新。基础船4格，每格冷却8小时；Trade Ship Pack增加5格。单进程读取繁忙或超时会提示，点击“刷新实例”可重试。

@@ -9,7 +9,7 @@ import tempfile
 import zlib
 from pathlib import Path
 
-BUILD_VERSION = '1.3.82'
+BUILD_VERSION = '1.3.85'
 
 
 def main() -> int:

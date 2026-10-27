@@ -246,6 +246,18 @@ def _configure_theme(self):
     style.configure('TNotebook', background=colors['background'], borderwidth=0)
     style.configure('TNotebook.Tab', background=colors['panel'], foreground=colors['muted'], font=font, padding=(18, 10))
     style.map('TNotebook.Tab', background=[('selected', colors['panel_alt'])], foreground=[('selected', colors['accent'])])
+    style.configure('TradeSlot.TLabel', background=colors['panel_alt'], foreground=colors['muted'],
+        font=('Microsoft YaHei UI', 8), padding=(4, 3))
+    style.configure('TradeSlotFree.TLabel', background='#EAF7F0', foreground='#16834A',
+        font=('Microsoft YaHei UI', 8), padding=(4, 3))
+    style.configure('TradeSlotOccupied.TLabel', background='#FFF5E6', foreground='#9A5B11',
+        font=('Microsoft YaHei UI', 8), padding=(4, 3))
+    style.configure('TradeSlotCD.TLabel', background='#FCEEEF', foreground='#B8324A',
+        font=('Microsoft YaHei UI', 8, 'bold'), padding=(4, 3))
+    style.configure('TradeSlotPending.TLabel', background='#EDF2FA', foreground='#476A9A',
+        font=('Microsoft YaHei UI', 8), padding=(4, 3))
+    style.configure('TradeSlotUnknown.TLabel', background=colors['panel_alt'], foreground=colors['muted'],
+        font=('Microsoft YaHei UI', 8), padding=(4, 3))
     for grade in GRADE_COLORS:
         key = grade_style_key(grade)
         color = GRADE_COLORS.get(grade, colors['muted'])
@@ -456,6 +468,18 @@ def _build_ui(self):
     self._manual_trade_ship_busy = False
     self._corrosion_status_probe_busy = False
     self._corrosion_status_probe_next_at = 0.0
+    self._account_dashboard_busy = set()
+    self._account_dashboard_by_pid = {}
+    self._account_dashboard_retry_after = {}
+    self._account_dashboard_request_token = {}
+    self._account_dashboard_poll_after = None
+    self._account_map_vars = {}
+    self._account_trade_summary_vars = {}
+    self._account_trade_rule_vars = {}
+    self._account_trade_slot_frames = {}
+    self._account_trade_slot_labels = {}
+    self._account_card_layouts = {}
+    self._account_cooldown_tick_after = None
 
     def render_corrosion_account_rows(values, errors=()):
         tree = getattr(self, 'corrosion_accounts_tree', None)
@@ -659,6 +683,200 @@ def _build_ui(self):
         except Exception:
             pass
 
+    def account_dashboard_slot_text(slot, observed_at):
+        if slot_cooldown_active(slot, observed_at):
+            if slot.get('cooldownRemainingMs') is None:
+                prefix = '占用 · ' if slot.get('occupied') is True else ''
+                return prefix + 'CD 进行中', 'TradeSlotCD.TLabel'
+            observed_at = safe_int(observed_at, int(time.time() * 1000))
+            remaining_ms = safe_int(slot.get('cooldownRemainingMs'), 0)
+            remaining = max(0, (remaining_ms - max(0, int(time.time() * 1000) - observed_at) + 999) // 1000)
+            hours, remainder = divmod(remaining, 3600)
+            minutes, seconds = divmod(remainder, 60)
+            prefix = '占用 · ' if slot.get('occupied') is True else ''
+            return f'{prefix}CD {hours:02d}:{minutes:02d}:{seconds:02d}', 'TradeSlotCD.TLabel'
+        if slot.get('waiting') is True:
+            return '确认中', 'TradeSlotPending.TLabel'
+        if slot.get('occupied') is True:
+            return '占用', 'TradeSlotOccupied.TLabel'
+        if slot.get('cooldownKnown') is True:
+            return '空闲', 'TradeSlotFree.TLabel'
+        return '状态未知', 'TradeSlotUnknown.TLabel'
+
+    def slot_cooldown_active(slot, observed_at):
+        if slot.get('cooldownActive') is not True:
+            return False
+        remaining_ms = slot.get('cooldownRemainingMs')
+        if remaining_ms is None:
+            return True
+        observed_at = safe_int(observed_at, int(time.time() * 1000))
+        return safe_int(remaining_ms, 0) > max(0, int(time.time() * 1000) - observed_at)
+
+    def set_account_var(variable, value):
+        if variable.get() != value:
+            variable.set(value)
+
+    def render_account_dashboard(pid, payload=None, failed=False):
+        map_var = self._account_map_vars.get(pid)
+        trade_var = self._account_trade_summary_vars.get(pid)
+        rule_var = self._account_trade_rule_vars.get(pid)
+        slot_frame = self._account_trade_slot_frames.get(pid)
+        if map_var is None or trade_var is None or rule_var is None or slot_frame is None:
+            return
+        if failed:
+            message = ('读取超时，其他账号仍可继续' if failed == 'timeout' else
+                '游戏通信繁忙，等待本账号请求结束' if failed == 'busy' else '暂时读取失败')
+            set_account_var(map_var, '地图：' + message)
+            set_account_var(trade_var, '交易船：' + message)
+            return
+        if not isinstance(payload, dict):
+            set_account_var(map_var, '地图：读取中')
+            set_account_var(trade_var, '交易船：读取中')
+            set_account_var(rule_var, '基础 4 格，DLC 可加 5 格；上传后槽位冷却 8 小时，冷却开始后不可取消')
+            return
+        stage_name = ''.join(ch for ch in str(payload.get('mapName') or '') if ch.isprintable()).strip()[:64]
+        set_account_var(map_var, '地图：' + (stage_name or '等待进入关卡'))
+        trade = payload.get('tradeShip')
+        if not isinstance(trade, dict) or trade.get('available') is False:
+            set_account_var(trade_var, '交易船：请先打开过交易船界面，等待读取槽位')
+            set_account_var(rule_var, '基础 4 格，DLC 可加 5 格；上传后槽位冷却 8 小时，冷却开始后不可取消')
+            for label in self._account_trade_slot_labels.get(pid, []):
+                label.configure(text='—', style='TradeSlotUnknown.TLabel')
+            return
+        slot_count = max(0, min(9, safe_int(trade.get('slotCount'), 0)))
+        slots = {safe_int(row.get('index'), -1): row for row in trade.get('slots') or []
+                 if isinstance(row, dict) and 0 <= safe_int(row.get('index'), -1) < slot_count}
+        occupied_count = sum(
+            row.get('occupied') is True or row.get('waiting') is True
+            for row in slots.values())
+        cooldown_count = sum(slot_cooldown_active(row, payload.get('observedAt')) for row in slots.values())
+        unknown_count = max(0, slot_count - len(slots)) + sum(
+            row.get('cooldownKnown') is not True for row in slots.values())
+        if slot_count:
+            set_account_var(trade_var, f'交易船 {slot_count} 格 · 已用 {occupied_count} · 冷却 {cooldown_count}' +
+                (f' · {unknown_count} 格状态未知' if unknown_count else ''))
+        else:
+            set_account_var(trade_var, '交易船：等待槽位初始化')
+        set_account_var(rule_var, '基础 4 格，DLC 可加 5 格；上传后槽位冷却 8 小时，冷却开始后不可取消')
+        labels = self._account_trade_slot_labels.get(pid, [])
+        for index in range(slot_count):
+            if index >= len(labels):
+                label = ttk.Label(slot_frame, text=f'{index + 1} —', style='TradeSlotUnknown.TLabel',
+                    anchor='center', padding=(4, 3))
+                label.grid(row=index // 4, column=index % 4, sticky='ew', padx=2, pady=2)
+                labels.append(label)
+            slot = slots.get(index)
+            if slot is None:
+                text, style_name = '状态未知', 'TradeSlotUnknown.TLabel'
+            else:
+                text, style_name = account_dashboard_slot_text(slot, payload.get('observedAt'))
+            if labels[index].cget('text') != f'{index + 1} {text}' or labels[index].cget('style') != style_name:
+                labels[index].configure(text=f'{index + 1} {text}', style=style_name)
+        for label in labels[slot_count:]:
+            label.grid_remove()
+        self._account_trade_slot_labels[pid] = labels
+
+    def account_cooldown_tick():
+        self._account_cooldown_tick_after = None
+        if getattr(self, 'shutting_down', False) or getattr(self, '_current_ui_page', None) != 'accounts':
+            return
+        for pid, payload in list(self._account_dashboard_by_pid.items()):
+            render_account_dashboard(pid, payload)
+        self._account_cooldown_tick_after = self.after(1000, account_cooldown_tick)
+
+    def apply_account_card_layouts(mode=None, pid=None):
+        mode = mode or getattr(self, '_ui_responsive_header_mode', 'wide')
+        for game_pid, widgets in list(self._account_card_layouts.items()):
+            if pid is not None and game_pid != pid:
+                continue
+            title, username, connection, context, controls, item = (
+                widgets[key] for key in ('title', 'username', 'connection', 'context', 'controls', 'item'))
+            if mode == 'narrow':
+                title.grid_configure(row=0, column=0, columnspan=4)
+                username.grid_configure(row=1, column=0, columnspan=4, sticky='w')
+                connection.grid_configure(row=2, column=0, columnspan=4, sticky='w')
+                context.grid_configure(row=3, column=0, columnspan=4, rowspan=1, padx=0, pady=(5, 0))
+                controls.grid_configure(row=4, column=0, columnspan=4, rowspan=1, sticky='w', padx=0, pady=(5, 0))
+            else:
+                title.grid_configure(row=0, column=0, columnspan=2)
+                username.grid_configure(row=1, column=0, columnspan=1, sticky='w')
+                connection.grid_configure(row=2, column=0, columnspan=1, sticky='w')
+                context.grid_configure(row=0, column=2, columnspan=1, rowspan=3, padx=(12, 8), pady=0)
+                controls.grid_configure(row=0, column=3, columnspan=1, rowspan=3, sticky='e', padx=(8, 0), pady=0)
+
+    def request_account_dashboard(force=False, manual=False):
+        if getattr(self, 'shutting_down', False):
+            return
+        if getattr(self, '_current_ui_page', None) == 'accounts' and self._account_cooldown_tick_after is None:
+            self._account_cooldown_tick_after = self.after(1000, account_cooldown_tick)
+        if not force and getattr(self, '_current_ui_page', None) != 'accounts':
+            return
+        if getattr(self, '_account_dashboard_poll_after', None) is None:
+            def poll_again():
+                self._account_dashboard_poll_after = None
+                if not getattr(self, 'shutting_down', False) and getattr(self, '_current_ui_page', None) == 'accounts':
+                    request_account_dashboard(True)
+            self._account_dashboard_poll_after = self.after(15000, poll_again)
+        try:
+            pids = sorted(int(pid) for pid in self.backend.target_pids() if int(pid) > 0)
+        except Exception:
+            pids = []
+        for pid in pids:
+            if pid in self._account_dashboard_busy:
+                continue
+            if not manual and time.monotonic() < self._account_dashboard_retry_after.get(pid, 0):
+                continue
+            try:
+                state = self.backend.targets.get(pid) or {}
+                rpc_lock = state.get('rpc_lock')
+                if rpc_lock is not None and rpc_lock.locked():
+                    render_account_dashboard(pid, failed='busy')
+                    continue
+            except Exception:
+                pass
+            self._account_dashboard_busy.add(pid)
+            token = object()
+            self._account_dashboard_request_token[pid] = token
+            def timeout(game_pid=pid, request_token=token):
+                if self._account_dashboard_request_token.get(game_pid) is not request_token:
+                    return
+                self._account_dashboard_request_token.pop(game_pid, None)
+                self._account_dashboard_busy.discard(game_pid)
+                self._account_dashboard_retry_after[game_pid] = time.monotonic() + 60
+                render_account_dashboard(game_pid, failed='timeout')
+            self.after(8000, timeout)
+            def worker(game_pid=pid, request_token=token):
+                payload, failed, failure_kind = None, False, 'error'
+                try:
+                    raw = rpc_one_with_timeout(game_pid, 'getaccountdashboard')
+                    payload = json.loads(raw) if isinstance(raw, str) else raw
+                    if not isinstance(payload, dict) or payload.get('status') != 'SUCCESS':
+                        failed = True
+                except TimeoutError as exc:
+                    failed = True
+                    failure_kind = 'busy' if '繁忙' in str(exc) else 'timeout'
+                except Exception:
+                    failed = True
+                def finish():
+                    if self._account_dashboard_request_token.get(game_pid) is not request_token:
+                        return
+                    self._account_dashboard_request_token.pop(game_pid, None)
+                    self._account_dashboard_busy.discard(game_pid)
+                    if getattr(self, 'shutting_down', False):
+                        return
+                    if not failed:
+                        self._account_dashboard_by_pid[game_pid] = payload
+                        self._account_dashboard_retry_after.pop(game_pid, None)
+                    else:
+                        self._account_dashboard_retry_after[game_pid] = time.monotonic() + (5 if failure_kind == 'busy' else 30)
+                    render_account_dashboard(game_pid, payload if not failed else None,
+                        failure_kind if failed else False)
+                try:
+                    self.after(0, finish)
+                except Exception:
+                    self._account_dashboard_busy.discard(game_pid)
+            threading.Thread(target=worker, name=f'账号地图与交易船-{pid}', daemon=True).start()
+
     def select_page(key):
         key = str(key)
         page = getattr(self, '_ui_pages', {}).get(key)
@@ -685,6 +903,7 @@ def _build_ui(self):
             marker.configure(background=colors['accent'] if selected else row_color)
         if key == 'accounts':
             self.refresh_account_cards()
+            request_account_dashboard(True, manual=True)
         elif key == 'magic':
             refresh_corrosion_status()
         elif key == 'stats':
@@ -1077,14 +1296,49 @@ def _build_ui(self):
         if rare_tree is not None:
             rare_records = sync_rare_drop_records(getattr(self, 'history_records', []))
             grouped, _, _ = collect_drop_statistics(rare_records, 'rare-loot')
-            ordered = sorted(grouped.items(), key=lambda entry: (
-                -entry[1]['time'], -grade_rank.get(entry[0][1], -1), entry[0][2].lower()))
-            render_drop_table(rare_tree, [((grade, name, row['count'], row['map'] or '未知地图',
-                drop_row_time(row)), grade) for (_, grade, name), row in ordered])
+            item_ids = sorted({str(key[0]) for key in grouped})
+            price_service = getattr(self, 'market_price_service', None)
+            price_map = price_service.prices_for(item_ids) if item_ids and price_service is not None else {}
+            sort_state = getattr(self, '_rare_drop_sort', {'column': '最近掉落', 'reverse': True})
+            sort_column = sort_state.get('column', '最近掉落')
+            reverse = bool(sort_state.get('reverse', True))
+            def cached_rare_price(item_id):
+                raw_price = (price_map.get(str(item_id)) or {}).get('priceCny')
+                try:
+                    return parse_market_price(raw_price)
+                except NameError:
+                    try:
+                        value = float(raw_price)
+                        return value if value == value and value not in (float('inf'), float('-inf')) and value >= 0 else None
+                    except (TypeError, ValueError, OverflowError):
+                        return None
+            def rare_sort_key(entry):
+                (item_id, grade, name), row = entry
+                price = cached_rare_price(item_id)
+                if sort_column == '品质':
+                    value = grade_rank.get(grade, -1)
+                elif sort_column == '参考价格':
+                    value = price if price is not None else -1
+                else:
+                    value = row['time']
+                return (value, grade_rank.get(grade, -1), name.lower())
+            ordered = sorted(grouped.items(), key=rare_sort_key, reverse=reverse)
+            rare_rows = []
+            for (item_id, grade, name), row in ordered:
+                price = cached_rare_price(item_id)
+                price_text = f'¥{price:.2f}' if price is not None and price > 0 else '—'
+                rare_rows.append(((grade, name, price_text, row['count'], row['map'] or '未知地图',
+                    drop_row_time(row)), grade))
+            render_drop_table(rare_tree, rare_rows)
+            if hasattr(rare_tree, 'heading'):
+                for column in ('品质', '参考价格', '最近掉落'):
+                    marker = ' ↓' if reverse else ' ↑'
+                    rare_tree.heading(column, text=column + (marker if column == sort_column else ''),
+                        command=lambda key=column: sort_rare_drop_records(key))
             pending = len(self._rare_drop_pending)
             self.rare_drop_status_var.set(
                 f'珍品累计 {sum(row["count"] for row in grouped.values()):,} 件 · {len(grouped)} 种物品 · '
-                + (f'{pending} 条待保存，自动重试中' if pending else '已保存至本地，按最近掉落时间排序'))
+                + (f'{pending} 条待保存，自动重试中' if pending else '显示本地价格缓存；点击品质、参考价格或最近掉落可排序'))
 
     def request_statistics_refresh():
         if getattr(self, 'shutting_down', False) or getattr(self, '_stats_refresh_after', None) is not None:
@@ -1767,6 +2021,36 @@ def _build_ui(self):
         except Exception as exc:
             messagebox.showerror('游戏窗口', str(exc), parent=self)
 
+    def rpc_one_with_timeout(pid, method, *args, timeout_seconds=6):
+        # A stalled Frida call owns this instance's RPC lock. Avoid adding
+        # more waits behind it, and never wait for a game thread on Tk's loop.
+        try:
+            target = self.backend.targets.get(int(pid)) or {}
+            rpc_lock = target.get('rpc_lock')
+            if rpc_lock is not None and rpc_lock.locked():
+                raise TimeoutError('游戏通信繁忙，请稍后重试')
+        except TimeoutError:
+            raise
+        except Exception:
+            pass
+        result_queue = queue.Queue(maxsize=1)
+        def perform():
+            try:
+                result_queue.put_nowait((True, self.backend.rpc_one(int(pid), method, *args)))
+            except Exception as exc:
+                try:
+                    result_queue.put_nowait((False, exc))
+                except queue.Full:
+                    pass
+        threading.Thread(target=perform, name=f'实例请求-{pid}-{method}', daemon=True).start()
+        try:
+            success, value = result_queue.get(timeout=max(.5, min(10, float(timeout_seconds))))
+        except queue.Empty:
+            raise TimeoutError('游戏请求等待超时；该账号状态可稍后重试') from None
+        if not success:
+            raise value
+        return value
+
     def refresh_frame_controls(pid):
         button = self._account_frame_buttons.get(pid)
         if button is not None and button.winfo_exists():
@@ -1777,12 +2061,17 @@ def _build_ui(self):
                 variable.set('读取 / 设置中…')
             else:
                 variable.set(self._ui_frame_results.get(pid, '待读取帧率'))
+        action = self._account_frame_buttons.get(pid)
+        if action is not None and action.winfo_exists():
+            action.configure(text='锁帧')
 
     def request_process_frame_limit(pid, apply=False):
         pid = int(pid)
         if pid in self._ui_frame_busy or getattr(self, 'shutting_down', False):
             return
         variable = self._account_frame_vars.get(pid)
+        if apply and variable is not None and variable.get() == '读取当前':
+            apply = False
         fps_values = {'不限': 0, '10 FPS': 10, '15 FPS': 15, '30 FPS': 30}
         requested = fps_values.get(variable.get()) if apply and variable is not None else None
         if apply and requested is None:
@@ -1792,7 +2081,7 @@ def _build_ui(self):
         def worker():
             result, error = None, ''
             try:
-                raw = self.backend.rpc_one(pid, 'setframelimit', requested) if apply else self.backend.rpc_one(pid, 'getframelimit')
+                raw = rpc_one_with_timeout(pid, 'setframelimit', requested) if apply else rpc_one_with_timeout(pid, 'getframelimit')
                 result = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(result, dict) or result.get('status') != 'SUCCESS':
                     raise RuntimeError(str((result or {}).get('error') if isinstance(result, dict) else result))
@@ -1846,6 +2135,7 @@ def _build_ui(self):
             messagebox.showerror('游戏窗口', str(exc), parent=self)
 
     self._ui_select_page = select_page
+    self._ui_request_account_dashboard = request_account_dashboard
     self._ui_update_summaries = update_summaries
     self._ui_refresh_summaries = refresh_summaries
     self._ui_stop_all = stop_all
@@ -1868,7 +2158,212 @@ def _build_ui(self):
             except Exception as exc:
                 self.thread_log(f'一键开启：连接已恢复，但应用配置失败：{exc}')
         return result
-    self.on_connected = on_connected_after_one_click
+
+    def hide_launched_game_window(pid, attempt=0):
+        if getattr(self, 'shutting_down', False) or not self.restart_hide_window_var.get():
+            return
+        try:
+            if set_process_windows(int(pid), True) > 0:
+                self.thread_log(f'[进程 {pid}] 启动后已自动隐藏游戏窗口。')
+                return
+        except Exception:
+            pass
+        if attempt < 6:
+            self.after(1500, lambda p=pid, n=attempt + 1: hide_launched_game_window(p, n))
+
+    def on_connected_with_startup_options(summary=None, quiet=False):
+        result = on_connected_after_one_click(summary, quiet)
+        if not self.backend.connected():
+            return result
+        targets = self.backend.target_snapshot()
+        if self.restart_hide_window_var.get():
+            for target in targets:
+                pid = safe_int(target.get('pid'), 0)
+                if pid > 0:
+                    self.after(1000, lambda p=pid: hide_launched_game_window(p))
+        if self.audit_tasks_on_start_var.get():
+            try:
+                self.after(250, self.apply_runtime_config)
+            except Exception as exc:
+                self.thread_log(f'启动任务检查未完成：{str(exc)[:120]}')
+        return result
+
+    self.on_connected = on_connected_with_startup_options
+
+    # The inventory fingerprint is useful for status reports, but an idle game
+    # can keep the same inventory for hours. Restart decisions use Windows'
+    # hung-window signal and the configured duration instead.
+    self.handle_inventory_fingerprint = lambda pid, signature, item_count: None
+    self._ui_hung_window_since = {}
+    self._ui_hang_probe_busy = False
+    original_watchdog_loop = self.watchdog_loop
+
+    def probe_hung_game_windows():
+        hung_by_pid = {}
+        try:
+            from ctypes import wintypes
+            user32 = ctypes.WinDLL('user32', use_last_error=True)
+            user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+            user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+            user32.IsHungAppWindow.argtypes = [wintypes.HWND]
+            user32.IsHungAppWindow.restype = wintypes.BOOL
+            targets = self.backend.target_snapshot()
+            tracked = {safe_int(row.get('pid'), 0): row for row in targets
+                       if safe_int(row.get('pid'), 0) > 0}
+            if not tracked:
+                return {}
+            callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            user32.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+            user32.EnumWindows.restype = wintypes.BOOL
+            def inspect(hwnd, _param):
+                pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value in tracked and user32.IsHungAppWindow(hwnd):
+                    hung_by_pid[pid.value] = tracked[pid.value]
+                return True
+            callback = callback_type(inspect)
+            user32.EnumWindows(callback, 0)
+        except Exception as exc:
+            file_log('watchdog', 'hung-window-probe-error', {'error': str(exc)[:180]})
+        return hung_by_pid
+
+    def schedule_hung_window_probe():
+        if (getattr(self, 'shutting_down', False) or self._ui_hang_probe_busy or
+                not self.license_valid or not self.watchdog_armed or
+                not self.auto_restart_game_var.get() or getattr(self, 'tray_paused', False)):
+            return
+        self._ui_hang_probe_busy = True
+        def worker():
+            observed = probe_hung_game_windows()
+            now = time.monotonic()
+            def finish():
+                self._ui_hang_probe_busy = False
+                if getattr(self, 'shutting_down', False):
+                    return
+                for pid in list(self._ui_hung_window_since):
+                    if pid not in observed:
+                        self._ui_hung_window_since.pop(pid, None)
+                threshold = max(5, min(600, safe_int(self.restart_hang_seconds_var.get(), 45)))
+                for pid, target in observed.items():
+                    since = self._ui_hung_window_since.setdefault(pid, now)
+                    if now - since < threshold or pid in self.restart_in_progress_pids:
+                        continue
+                    self._ui_hung_window_since[pid] = now + 10_000_000
+                    context = self.backend.target_context(pid) or target
+                    self.thread_log(f'[进程 {pid}] Windows 已将游戏窗口标记为无响应，连续检测达到 {threshold} 秒，开始重启该实例。')
+                    self.begin_game_restart('游戏窗口持续无响应', pid=pid, context=context)
+            try:
+                self.after(0, finish)
+            except Exception:
+                self._ui_hang_probe_busy = False
+        threading.Thread(target=worker, name='游戏窗口卡死检测', daemon=True).start()
+
+    def watchdog_with_hung_window_detection():
+        schedule_hung_window_probe()
+        original_watchdog_loop()
+    self.watchdog_loop = watchdog_with_hung_window_detection
+
+    self._ui_restart_attempts = {}
+    self._ui_restart_delay_pending = set()
+    original_begin_restart = self.begin_game_restart
+    def begin_restart_with_limits(reason, pid=None, context=None):
+        pid = safe_int(pid, 0)
+        context = copy.deepcopy(context or {})
+        retrying = context.pop('_uiRetryAttempt', False) is True
+        delay_applied = context.pop('_uiRestartDelayApplied', False) is True
+        if not retrying:
+            self._ui_restart_attempts[pid] = 0
+        if pid in self.restart_in_progress_pids:
+            return
+        attempts = safe_int(self._ui_restart_attempts.get(pid), 0)
+        maximum = max(1, min(20, safe_int(self.restart_max_attempts_var.get(), 3)))
+        if attempts >= maximum:
+            self.thread_log(f'[进程 {pid or "宿主机"}] 已达到自动重启上限 {maximum} 次，停止重试。')
+            return
+        wait_seconds = max(0, min(600, safe_int(self.restart_wait_seconds_var.get(), 10)))
+        if not delay_applied and wait_seconds > 0 and (pid <= 0 or not game_process_exists(pid)):
+            if pid in self._ui_restart_delay_pending:
+                return
+            self._ui_restart_delay_pending.add(pid)
+            context['_uiRetryAttempt'] = True
+            context['_uiRestartDelayApplied'] = True
+            self.thread_log(f'[进程 {pid or "宿主机"}] 等待 {wait_seconds} 秒后启动游戏。')
+            def delayed_start():
+                self._ui_restart_delay_pending.discard(pid)
+                original_context = dict(context)
+                original_context['_uiRetryAttempt'] = retrying
+                original_context['_uiRestartDelayApplied'] = True
+                begin_restart_with_limits(reason, pid, original_context)
+            self.after(wait_seconds * 1000, delayed_start)
+            return
+        self._ui_restart_attempts[pid] = attempts + 1
+        self.thread_log(f'[进程 {pid or "宿主机"}] 自动重启尝试 {attempts + 1}/{maximum}。')
+        return original_begin_restart(reason, pid=pid, context=context)
+    self.begin_game_restart = begin_restart_with_limits
+
+    def fail_restart_with_limits(pid, exc, context):
+        pid = safe_int(pid, 0)
+        self.restart_in_progress_pids.discard(pid)
+        self.restart_contexts.pop(pid, None)
+        self.watchdog_restart_in_progress = bool(self.restart_in_progress_pids)
+        if getattr(self, 'shutting_down', False):
+            return
+        count = self.backend.connection_count()
+        self.status_var.set(f'实例 {pid or "宿主机"} 自动重启失败' if not count else f'已连接 {count} 个实例，另有实例重启失败')
+        self.instance_status_button.configure(state='normal' if count else 'disabled')
+        self.connect_button.configure(state='disabled' if count else 'normal')
+        self.set_runtime_controls(bool(count))
+        maximum = max(1, min(20, safe_int(self.restart_max_attempts_var.get(), 3)))
+        attempts = safe_int(self._ui_restart_attempts.get(pid), 1)
+        if attempts >= maximum:
+            self._ui_restart_attempts.pop(pid, None)
+            self.thread_log(f'[进程 {pid or "宿主机"}] 自动重启失败并已达到 {maximum} 次上限，重启任务已停止：{str(exc)[:160]}')
+            file_log('watchdog', 'restart-retries-exhausted', {'pid': pid, 'attempts': attempts, 'error': str(exc)[:200]})
+            return
+        retry_seconds = max(5, min(3600, safe_int(self.restart_retry_seconds_var.get(), 60)))
+        self.thread_log(f'[进程 {pid or "宿主机"}] 自动重启失败：{str(exc)[:150]}；{retry_seconds} 秒后进行第 {attempts + 1}/{maximum} 次尝试。')
+        saved_context = copy.deepcopy(context or {})
+        saved_context['_uiRetryAttempt'] = True
+        self.after(retry_seconds * 1000, lambda p=pid, c=saved_context:
+            self.begin_game_restart('上一次自动重启失败后重试', pid=p, context=c))
+    self.fail_instance_restart = fail_restart_with_limits
+
+    original_finish_restart = self.finish_instance_restart
+    def finish_restart_with_options(old_pid, new_pid=None, cancelled=False):
+        result = original_finish_restart(old_pid, new_pid=new_pid, cancelled=cancelled)
+        old_pid = safe_int(old_pid, 0)
+        if cancelled or new_pid is not None:
+            self._ui_restart_attempts.pop(old_pid, None)
+            self._ui_hung_window_since.pop(old_pid, None)
+        if not cancelled and new_pid is not None:
+            if self.restart_hide_window_var.get():
+                self.after(1000, lambda p=int(new_pid): hide_launched_game_window(p))
+            if self.audit_tasks_on_start_var.get():
+                self.after(250, self.apply_runtime_config)
+        return result
+    self.finish_instance_restart = finish_restart_with_options
+
+    original_restart_attached = self.on_instance_restart_attached
+    def restart_attached_with_hide(old_pid, new_pid, context):
+        result = original_restart_attached(old_pid, new_pid, context)
+        if self.restart_hide_window_var.get():
+            self.after(1000, lambda p=int(new_pid): hide_launched_game_window(p))
+        return result
+    self.on_instance_restart_attached = restart_attached_with_hide
+
+    def terminate_only_target_and_wait(pid):
+        pid = safe_int(pid, 0)
+        if pid <= 0:
+            return
+        flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+        result = subprocess.run(['taskkill', '/PID', str(pid), '/F'], stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, creationflags=flags, check=False)
+        if result.returncode != 0 and game_process_exists(pid):
+            raise RuntimeError(f'无法结束游戏进程 {pid}：{(result.stdout or "").strip()[:160]}')
+        wait_seconds = max(0, min(600, safe_int(self.restart_wait_seconds_var.get(), 10)))
+        if wait_seconds:
+            time.sleep(wait_seconds)
+    globals()['force_terminate_game'] = terminate_only_target_and_wait
 
     # Keep the latest map/box decision visible in diagnostics. This makes a
     # deliberate skip (already on the target map, boss instance, ticket
@@ -2102,12 +2597,14 @@ def _build_ui(self):
     ttk.Label(top_tools, textvariable=self.auto_state_var, style='PillMuted.TLabel').grid(row=0, column=1, sticky='e', padx=4, pady=3)
     self.auto_start_button = ttk.Button(top_tools, text='一键开启', style='Accent.TButton', command=self.begin_auto_start)
     self.auto_start_button.grid(row=0, column=2, sticky='e', padx=4, pady=3)
+    self.start_game_button = ttk.Button(top_tools, text='启动游戏', style='Utility.TButton', command=self.begin_auto_start)
+    self.start_game_button.grid(row=0, column=3, sticky='e', padx=4, pady=3)
     self.stop_all_button = ttk.Button(top_tools, text='全部关闭', style='Utility.TButton', command=self._ui_stop_all)
-    self.stop_all_button.grid(row=0, column=3, sticky='e', padx=4, pady=3)
+    self.stop_all_button.grid(row=0, column=4, sticky='e', padx=4, pady=3)
     self.hide_game_button = ttk.Button(top_tools, text='隐藏游戏窗口', style='Utility.TButton', command=self._ui_toggle_game_windows)
-    self.hide_game_button.grid(row=0, column=4, sticky='e', padx=4, pady=3)
+    self.hide_game_button.grid(row=0, column=5, sticky='e', padx=4, pady=3)
     self.exit_button = ttk.Button(top_tools, text='退出助手', style='Utility.TButton', command=self.on_close)
-    self.exit_button.grid(row=0, column=5, sticky='e', padx=(4, 0), pady=3)
+    self.exit_button.grid(row=0, column=6, sticky='e', padx=(4, 0), pady=3)
 
     self.page_host = ttk.Frame(main, style='TFrame')
     self.page_host.grid(row=1, column=0, sticky='nsew', padx=(18, 18), pady=(0, 8))
@@ -2211,7 +2708,7 @@ def _build_ui(self):
         ttk.Button(body, text='打开设置  →', style='Utility.TButton', command=lambda selected=key: self._ui_select_page(selected)).pack(fill='x', pady=(12, 0))
     quick_box, quick_body = card(overview, '快速开始', padding=(16, 13))
     quick_box.grid(row=4, column=0, sticky='ew', pady=(0, 12))
-    ttk.Label(quick_body, text='启动游戏后点击“一键开启”。程序按当前设置连接实例；配置变更会同步到已连接游戏。', style='PanelMuted.TLabel', wraplength=1050, justify='left').pack(anchor='w')
+    ttk.Label(quick_body, text='点击“启动游戏”运行已选择的宿主机或沙盒实例；游戏连接后点击“一键开启”应用任务设置。设置变更会同步至已连接实例。', style='PanelMuted.TLabel', wraplength=1050, justify='left').pack(anchor='w')
     legal_box, legal_body = card(overview, '使用说明', padding=(16, 13))
     legal_box.grid(row=5, column=0, sticky='ew', pady=(0, 8))
     ttk.Label(legal_body, text='请从可信渠道获取程序。自动化操作可能受到游戏规则限制，使用前请阅读相关规则并自行评估账号风险。', style='PanelMuted.TLabel', wraplength=1050, justify='left').pack(anchor='w')
@@ -2242,8 +2739,14 @@ def _build_ui(self):
     self.auto_attach_switch = ttk.Checkbutton(connection_body, text='自动连接发现的游戏进程', variable=self.auto_attach_var, command=self.on_auto_attach_changed)
     self.auto_attach_switch.pack(anchor='w')
     self.auto_restart_game_var = tk.BooleanVar(value=bool(self.cfg.get('autoRestartGame', False)) if self.license_valid else False)
-    self.auto_restart_game_switch = ttk.Checkbutton(connection_body, text='游戏异常退出后自动重启', variable=self.auto_restart_game_var, command=self.on_auto_restart_changed)
+    self.auto_restart_game_switch = ttk.Checkbutton(connection_body, text='游戏异常退出或卡死后自动重启', variable=self.auto_restart_game_var, command=self.on_auto_restart_changed)
     self.auto_restart_game_switch.pack(anchor='w', pady=(3, 0))
+    self.restart_hang_seconds_var = tk.StringVar(value=str(max(5, min(600, safe_int(self.cfg.get('restartHangSeconds'), 45)))))
+    self.restart_wait_seconds_var = tk.StringVar(value=str(max(0, min(600, safe_int(self.cfg.get('restartWaitSeconds'), 10)))))
+    self.restart_retry_seconds_var = tk.StringVar(value=str(max(5, min(3600, safe_int(self.cfg.get('restartRetrySeconds'), 60)))))
+    self.restart_max_attempts_var = tk.StringVar(value=str(max(1, min(20, safe_int(self.cfg.get('restartMaxAttempts'), 3)))))
+    self.restart_hide_window_var = tk.BooleanVar(value=self.cfg.get('restartHideWindowAfterLaunch') is True)
+    self.audit_tasks_on_start_var = tk.BooleanVar(value=self.cfg.get('auditTasksOnStart') is not False)
     self.auto_start_host_var = tk.BooleanVar(value=bool(self.cfg.get('autoStartHostGame', False)) if self.license_valid else False)
     self.auto_start_host_switch = ttk.Checkbutton(connection_body, text='一键开启宿主机游戏', variable=self.auto_start_host_var, command=self.on_auto_start_options_changed)
     self.auto_start_host_switch.pack(anchor='w', pady=(3, 0))
@@ -2265,7 +2768,14 @@ def _build_ui(self):
         self._account_window_buttons.clear()
         self._account_frame_buttons.clear()
         self._account_frame_status_vars.clear()
+        self._account_map_vars.clear()
+        self._account_trade_summary_vars.clear()
+        self._account_trade_rule_vars.clear()
+        self._account_trade_slot_frames.clear()
+        self._account_trade_slot_labels.clear()
+        self._account_card_layouts.clear()
         live_pids = {safe_int(target.get('pid'), 0) for target in rows}
+        self._account_dashboard_by_pid = {pid: value for pid, value in self._account_dashboard_by_pid.items() if pid in live_pids}
         self._ui_frame_loaded.intersection_update(live_pids)
         self._account_identity_by_pid = {pid: value for pid, value in self._account_identity_by_pid.items() if pid in live_pids}
         if not rows:
@@ -2280,34 +2790,67 @@ def _build_ui(self):
                 label = str(target.get('label') or (f'沙盒 {box_name}' if sandboxed else '本机游戏'))
                 item = ttk.Frame(self.account_cards_frame, style='Card.TFrame', padding=(12, 10))
                 item.pack(fill='x', pady=4)
-                item.columnconfigure(1, weight=1)
-                ttk.Label(item, text=f'{label}  ·  PID {pid}', style='Panel.TLabel', font=('Microsoft YaHei UI', 10, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w')
+                item.columnconfigure(2, weight=1)
+                title_label = ttk.Label(item, text=f'{label}  ·  PID {pid}', style='Panel.TLabel', font=('Microsoft YaHei UI', 10, 'bold'))
+                title_label.grid(row=0, column=0, columnspan=2, sticky='w')
                 identity = self._account_identity_by_pid.get(pid) or {}
                 name_var = tk.StringVar(value='用户名：' + (identity.get('displayName') or '待读取'))
                 self._account_name_vars[pid] = name_var
-                ttk.Label(item, textvariable=name_var, style='Panel.TLabel').grid(row=1, column=0, columnspan=2, sticky='w', pady=(4, 0))
-                ttk.Label(item, text='Sandboxie worker 已连接' if sandboxed else 'Frida 进程已连接', style='PanelMuted.TLabel').grid(row=2, column=0, sticky='w', pady=(3, 0))
+                username_label = ttk.Label(item, textvariable=name_var, style='Panel.TLabel')
+                username_label.grid(row=1, column=0, sticky='w', pady=(4, 0))
+                connection_label = ttk.Label(item, text='Sandboxie worker 已连接' if sandboxed else 'Frida 进程已连接', style='PanelMuted.TLabel')
+                connection_label.grid(row=2, column=0, sticky='w', pady=(3, 0))
+                context = ttk.Frame(item, style='Card.TFrame')
+                context.grid(row=0, column=2, rowspan=3, sticky='nsew', padx=(12, 8))
+                context.columnconfigure(0, weight=1)
+                map_var = tk.StringVar(value='地图：读取中')
+                trade_summary_var = tk.StringVar(value='交易船：读取中')
+                trade_rule_var = tk.StringVar(value='基础 4 格，DLC 可加 5 格；上传后槽位冷却 8 小时，冷却开始后不可取消')
+                self._account_map_vars[pid] = map_var
+                self._account_trade_summary_vars[pid] = trade_summary_var
+                self._account_trade_rule_vars[pid] = trade_rule_var
+                ttk.Label(context, textvariable=map_var, style='Panel.TLabel',
+                    font=('Microsoft YaHei UI', 9, 'bold')).grid(row=0, column=0, sticky='w')
+                ttk.Label(context, textvariable=trade_summary_var, style='Panel.TLabel',
+                    font=('Microsoft YaHei UI', 9)).grid(row=1, column=0, sticky='w', pady=(3, 0))
+                ttk.Label(context, textvariable=trade_rule_var, style='PanelMuted.TLabel',
+                    font=('Microsoft YaHei UI', 8)).grid(row=2, column=0, sticky='w', pady=(1, 3))
+                slot_frame = ttk.Frame(context, style='Card.TFrame')
+                slot_frame.grid(row=3, column=0, sticky='w')
+                for slot_column in range(4):
+                    slot_frame.columnconfigure(slot_column, weight=1, uniform=f'trade-slots-{pid}')
+                self._account_trade_slot_frames[pid] = slot_frame
+                self._account_trade_slot_labels[pid] = []
+                render_account_dashboard(pid, self._account_dashboard_by_pid.get(pid))
                 controls = ttk.Frame(item, style='Card.TFrame')
-                controls.grid(row=0, column=2, rowspan=3, sticky='e', padx=(8, 0))
+                controls.grid(row=0, column=3, rowspan=3, sticky='e', padx=(8, 0))
                 window_button = ttk.Button(controls, text='显示窗口' if pid in self._ui_hidden_game_windows else '隐藏窗口',
                                            style='Utility.TButton', command=lambda p=pid: toggle_process_windows(p))
                 window_button.grid(row=0, column=0, padx=(0, 8))
                 self._account_window_buttons[pid] = window_button
-                frame_var = self._account_frame_vars.setdefault(pid, tk.StringVar(value='不限'))
-                ttk.Combobox(controls, textvariable=frame_var, values=('不限', '10 FPS', '15 FPS', '30 FPS'),
-                             state='readonly', width=7).grid(row=0, column=1, padx=(0, 4))
+                frame_var = self._account_frame_vars.setdefault(pid, tk.StringVar(value='读取当前'))
+                frame_combo = ttk.Combobox(controls, textvariable=frame_var,
+                    values=('读取当前', '不限', '10 FPS', '15 FPS', '30 FPS'),
+                    state='readonly', width=9)
+                frame_combo.grid(row=0, column=1, padx=(0, 4))
+                frame_combo.bind('<<ComboboxSelected>>',
+                    lambda _event,p=pid: refresh_frame_controls(p))
                 frame_button = ttk.Button(controls, text='锁帧', style='Utility.TButton',
-                                          command=lambda p=pid: request_process_frame_limit(p, apply=True))
+                    command=lambda p=pid,v=frame_var: request_process_frame_limit(
+                        p, apply=v.get()!='读取当前'))
                 frame_button.grid(row=0, column=2, padx=(0, 8))
                 self._account_frame_buttons[pid] = frame_button
                 ttk.Button(controls, text='实例详情', style='Utility.TButton', command=self.open_instance_status).grid(row=0, column=3)
                 frame_status = tk.StringVar()
                 self._account_frame_status_vars[pid] = frame_status
                 ttk.Label(controls, textvariable=frame_status, style='PanelMuted.TLabel').grid(row=1, column=1, columnspan=2, pady=(3, 0))
+                self._account_card_layouts[pid] = {
+                    'title':title_label, 'username':username_label,
+                    'connection':connection_label, 'context':context,
+                    'controls':controls, 'item':item}
+                apply_account_card_layouts(pid=pid)
                 refresh_frame_controls(pid)
-                if pid not in self._ui_frame_loaded:
-                    self._ui_frame_loaded.add(pid)
-                    self.after(100, lambda p=pid: request_process_frame_limit(p))
+                self._ui_frame_loaded.add(pid)
             self.account_count_var.set(f'已连接 {len(rows)} 个账号')
         try:
             count = int(self.backend.connection_count())
@@ -2315,13 +2858,17 @@ def _build_ui(self):
         except Exception:
             pass
         sync_window_controls()
+        if getattr(self, '_current_ui_page', None) == 'accounts':
+            request_account_dashboard(True, manual=True)
+        if getattr(self, '_current_ui_page', None) == 'accounts':
+            request_account_dashboard(True)
     self.refresh_account_cards = refresh_account_cards
     ttk.Button(account_actions_body, text='刷新实例', style='Utility.TButton', command=refresh_account_cards).pack(side='left', padx=4)
 
     # Magic page
     magic = self._ui_page_contents['magic']
     magic.columnconfigure(0, weight=1)
-    page_heading(magic, '魔方', '装备、首饰、材料合成；腐蚀按品级与仓库范围筛选')
+    page_heading(magic, '魔方', '装备、首饰、材料合成；腐蚀按类别、品级、仓库范围与报价保护筛选')
     synthesis_box, synthesis_body = card(magic, '自动合成设置', '合成按类别和品级上限执行；未满足条件的物品保持不变。')
     synthesis_box.grid(row=2, column=0, sticky='ew', pady=(0, 12))
     self.main_enabled_var = tk.BooleanVar(value=bool(self.cfg.get('mainEnabled', False)) if self.license_valid else False)
@@ -2329,9 +2876,6 @@ def _build_ui(self):
     self.main_switch.grid(row=0, column=0, sticky='w', padx=(0, 18), pady=3)
     self.runtime_controls.append((self.main_switch, 'normal'))
     self.auto_open_boxes_var = tk.BooleanVar(value=bool(self.cfg.get('autoOpenBoxes', False)) if self.license_valid else False)
-    self.auto_open_switch = ttk.Checkbutton(synthesis_body, text='自动开启宝箱', variable=self.auto_open_boxes_var, command=self.apply_runtime_config)
-    self.auto_open_switch.grid(row=0, column=1, sticky='w', padx=(0, 18), pady=3)
-    self.runtime_controls.append((self.auto_open_switch, 'normal'))
     self.auto_deposit_unsynthable_var = tk.BooleanVar(value=bool(self.cfg.get('autoDepositUnsynthable', False)) if self.license_valid else False)
     self.auto_deposit_switch = ttk.Checkbutton(synthesis_body, text='启用定时存放背包物品', variable=self.auto_deposit_unsynthable_var, command=self.apply_runtime_config)
     self.auto_deposit_switch.grid(row=0, column=2, sticky='w', pady=3)
@@ -2357,56 +2901,79 @@ def _build_ui(self):
     self.synthesis_ignore_button.pack(side='left')
     ttk.Label(rule_actions, text='每类物品按独立品级上限筛选。', style='PanelMuted.TLabel').pack(side='left', padx=10)
 
-    timing_row = ttk.Frame(synthesis_body, style='Panel.TFrame')
-    timing_row.grid(row=7, column=0, columnspan=3, sticky='ew', pady=(9, 1))
-    ttk.Label(timing_row, text='自动开箱检测间隔（分钟）', style='PanelMuted.TLabel').grid(row=0, column=0, sticky='w', padx=(0, 7))
     self.auto_box_interval_var = tk.StringVar(value=str(self.cfg.get('autoBoxCheckIntervalMinutes', 1)))
-    self.auto_box_interval_spin = ttk.Spinbox(timing_row, from_=1, to=1440, width=6,
-        textvariable=self.auto_box_interval_var, command=self.on_rule_changed)
-    self.auto_box_interval_spin.grid(row=0, column=1, sticky='w', padx=(0, 24))
-    self.auto_box_interval_spin.bind('<Return>', lambda _event: self.on_rule_changed())
-    self.auto_box_interval_spin.bind('<FocusOut>', lambda _event: self.on_rule_changed())
-    self.runtime_controls.append((self.auto_box_interval_spin, 'normal'))
 
-    corrosion_box, corrosion_body = card(magic, '自动腐蚀设置', '按分钟检测仓库负载；达到阈值后腐蚀符合品级与保护规则的物品。')
+    corrosion_box, corrosion_body = card(magic, '自动腐蚀设置', '按账号检测污染度与仓库占用；候选物品逐项核验类别、品级、保护清单和报价缓存。')
     corrosion_box.grid(row=3, column=0, sticky='ew', pady=(0, 12))
     for column in range(4):
         corrosion_body.columnconfigure(column, weight=1 if column in (1, 3) else 0)
     self.auto_corrosion_var = tk.BooleanVar(value=self.cfg.get('autoCorrosion') is True)
-    self.corrosion_grade_var = tk.StringVar(value=CORROSION_GRADE_VALUE_TO_LABEL[normalize_corrosion_grade(self.cfg.get('corrosionMaxGrade'))])
+    # Keep the controller's legacy value available for older callbacks and config migrations.
+    self.corrosion_grade_var = tk.StringVar(value=CORROSION_GRADE_VALUE_TO_LABEL[
+        normalize_corrosion_grade(self.cfg.get('corrosionMaxGrade'))])
     self.corrosion_stash_var = tk.BooleanVar(value=self.cfg.get('corrosionIncludeStash') is True)
     self.auto_corrosion_switch = ttk.Checkbutton(corrosion_body, text='启用自动腐蚀', variable=self.auto_corrosion_var,
         command=lambda: (self.apply_runtime_config(), refresh_corrosion_status(True)))
     self.auto_corrosion_switch.grid(row=0, column=0, sticky='w', padx=(0, 18), pady=3)
     self.runtime_controls.append((self.auto_corrosion_switch, 'normal'))
-    ttk.Label(corrosion_body, text='最高腐蚀品级', style='PanelMuted.TLabel').grid(row=0, column=1, sticky='e', padx=(0, 6))
-    self.corrosion_grade_combo = ttk.Combobox(corrosion_body, textvariable=self.corrosion_grade_var, values=list(CORROSION_GRADE_LABEL_TO_VALUE), state='readonly', width=13)
-    self.corrosion_grade_combo.grid(row=0, column=2, sticky='w')
-    self.corrosion_grade_var.trace_add('write', lambda *_args: self.on_rule_changed())
-    self.corrosion_grade_combo.bind('<<ComboboxSelected>>', lambda _event: self.on_rule_changed())
-    self.runtime_controls.append((self.corrosion_grade_combo, 'readonly'))
     self.corrosion_stash_switch = ttk.Checkbutton(corrosion_body, text='仓库物品参与腐蚀', variable=self.corrosion_stash_var, command=self.on_rule_changed)
-    self.corrosion_stash_switch.grid(row=1, column=0, sticky='w', pady=3)
+    self.corrosion_stash_switch.grid(row=0, column=1, sticky='w', pady=3)
     self.runtime_controls.append((self.corrosion_stash_switch, 'normal'))
+    category_rules = self.cfg.get('corrosionCategoryRules') if isinstance(self.cfg.get('corrosionCategoryRules'), dict) else {}
+    legacy_max_grade = normalize_corrosion_grade(self.cfg.get('corrosionMaxGrade'))
+    if not category_rules and legacy_max_grade == 0:
+        legacy_max_grade = 4
+    self.corrosion_category_enabled_vars = {}
+    self.corrosion_category_grade_vars = {}
+    category_rule_frame = ttk.Frame(corrosion_body, style='Panel.TFrame')
+    category_rule_frame.grid(row=1, column=0, columnspan=4, sticky='ew', pady=(4, 7))
+    for column, (key, label) in enumerate((('equipment', '装备'), ('material', '材料'), ('relic', '圣物'), ('accessory', '首饰'))):
+        rule = category_rules.get(key) if isinstance(category_rules.get(key), dict) else {}
+        enabled_var = tk.BooleanVar(value=rule.get('enabled') is True)
+        grade_var = tk.StringVar(value=CORROSION_GRADE_VALUE_TO_LABEL[normalize_corrosion_grade(
+            rule.get('maxGrade', legacy_max_grade))])
+        self.corrosion_category_enabled_vars[key] = enabled_var
+        self.corrosion_category_grade_vars[key] = grade_var
+        row = ttk.Frame(category_rule_frame, style='Panel.TFrame')
+        row.grid(row=column // 2, column=column % 2, sticky='ew', padx=(0, 16), pady=3)
+        row.columnconfigure(2, weight=1)
+        switch = ttk.Checkbutton(row, text=label, variable=enabled_var, command=self.on_rule_changed)
+        switch.grid(row=0, column=0, sticky='w', padx=(0, 9))
+        ttk.Label(row, text='最高腐蚀品级', style='PanelMuted.TLabel').grid(row=0, column=1, sticky='e', padx=(0, 5))
+        combo = ttk.Combobox(row, textvariable=grade_var, values=list(CORROSION_GRADE_LABEL_TO_VALUE),
+            state='readonly', width=13)
+        combo.grid(row=0, column=2, sticky='w')
+        combo.bind('<<ComboboxSelected>>', lambda _event: self.on_rule_changed())
+        self.runtime_controls.extend(((switch, 'normal'), (combo, 'readonly')))
+    ttk.Label(corrosion_body, text='未命中报价缓存的物品按保护规则跳过。', style='PanelMuted.TLabel').grid(
+        row=2, column=0, columnspan=2, sticky='w', pady=3)
+    ttk.Label(corrosion_body, text='保护价格（¥，0 关闭）', style='PanelMuted.TLabel').grid(
+        row=2, column=2, sticky='e', padx=(14, 6), pady=3)
+    self.corrosion_protect_price_var = tk.StringVar(value=f'{normalize_nonnegative_float(self.cfg.get("corrosionProtectPriceCny"), 0.0):g}')
+    self.corrosion_protect_price_entry = ttk.Entry(corrosion_body, textvariable=self.corrosion_protect_price_var, width=9)
+    self.corrosion_protect_price_entry.grid(row=2, column=3, sticky='w')
+    self.corrosion_protect_price_entry.bind('<Return>', lambda _event: self.on_rule_changed())
+    self.corrosion_protect_price_entry.bind('<FocusOut>', lambda _event: self.on_rule_changed())
+    self.runtime_controls.append((self.corrosion_protect_price_entry, 'normal'))
     self.corrosion_interval_var = tk.StringVar(value=str(self.cfg.get('corrosionMinimumIntervalMinutes', 5)))
-    ttk.Label(corrosion_body, text='检测间隔（分钟）', style='PanelMuted.TLabel').grid(row=1, column=1, sticky='e', padx=(0, 6))
+    ttk.Label(corrosion_body, text='检测间隔（分钟）', style='PanelMuted.TLabel').grid(row=3, column=0, sticky='w', padx=(0, 6))
     self.corrosion_interval_spin = ttk.Spinbox(corrosion_body, from_=1, to=1440, width=6, textvariable=self.corrosion_interval_var, command=self.on_rule_changed)
-    self.corrosion_interval_spin.grid(row=1, column=2, sticky='w')
+    self.corrosion_interval_spin.grid(row=3, column=1, sticky='w')
     self.corrosion_interval_spin.bind('<Return>', lambda _event: self.on_rule_changed())
     self.corrosion_interval_spin.bind('<FocusOut>', lambda _event: self.on_rule_changed())
     self.runtime_controls.append((self.corrosion_interval_spin, 'normal'))
     self.corrosion_warehouse_threshold_var = tk.StringVar(value=str(self.cfg.get('corrosionWarehouseThresholdPercent', 50)))
-    ttk.Label(corrosion_body, text='仓库占用达到（%）', style='PanelMuted.TLabel').grid(row=2, column=0, sticky='w', pady=3)
+    ttk.Label(corrosion_body, text='仓库占用达到（%）', style='PanelMuted.TLabel').grid(row=3, column=2, sticky='e', padx=(14, 6), pady=3)
     self.corrosion_warehouse_threshold_spin = ttk.Spinbox(corrosion_body, from_=1, to=100, width=6, textvariable=self.corrosion_warehouse_threshold_var, command=self.on_rule_changed)
-    self.corrosion_warehouse_threshold_spin.grid(row=2, column=1, sticky='w')
+    self.corrosion_warehouse_threshold_spin.grid(row=3, column=3, sticky='w')
     self.corrosion_warehouse_threshold_spin.bind('<Return>', lambda _event: self.on_rule_changed())
     self.corrosion_warehouse_threshold_spin.bind('<FocusOut>', lambda _event: self.on_rule_changed())
     self.runtime_controls.append((self.corrosion_warehouse_threshold_spin, 'normal'))
-    ttk.Label(corrosion_body, text='腐蚀度低于（0 关闭）', style='PanelMuted.TLabel').grid(row=2, column=2, sticky='e', padx=(14, 6), pady=3)
+    ttk.Label(corrosion_body, text='腐蚀度低于（0 关闭）', style='PanelMuted.TLabel').grid(row=4, column=0, sticky='w', pady=3)
     self.corrosion_pollution_threshold_var = tk.StringVar(value=str(max(0, safe_int(self.cfg.get('corrosionPollutionThreshold'), 300))))
     self.corrosion_pollution_threshold_spin = ttk.Spinbox(corrosion_body, from_=0, to=1000000, width=9,
         textvariable=self.corrosion_pollution_threshold_var, command=self.on_rule_changed)
-    self.corrosion_pollution_threshold_spin.grid(row=2, column=3, sticky='w')
+    self.corrosion_pollution_threshold_spin.grid(row=4, column=1, sticky='w')
     self.corrosion_pollution_threshold_spin.bind('<Return>', lambda _event: self.on_rule_changed())
     self.corrosion_pollution_threshold_spin.bind('<FocusOut>', lambda _event: self.on_rule_changed())
     self.runtime_controls.append((self.corrosion_pollution_threshold_spin, 'normal'))
@@ -2415,24 +2982,11 @@ def _build_ui(self):
     self.corrosion_protect_jack_var = tk.BooleanVar(value=self.cfg.get('corrosionProtectJackTickets') is not False)
     self.corrosion_protect_relics_var = tk.BooleanVar(value=self.cfg.get('corrosionProtectRelics') is not False)
     protected_row = ttk.Frame(corrosion_body, style='Panel.TFrame')
-    protected_row.grid(row=3, column=0, columnspan=4, sticky='ew', pady=(4, 2))
+    protected_row.grid(row=5, column=0, columnspan=4, sticky='ew', pady=(4, 2))
     for column, (label, variable) in enumerate((('跳过供奉材料', self.corrosion_protect_offering_var),
-            ('跳过灵魂石', self.corrosion_protect_soulstones_var), ('跳过杰克入场券', self.corrosion_protect_jack_var),
-            ('跳过圣物', self.corrosion_protect_relics_var))):
+            ('跳过灵魂石', self.corrosion_protect_soulstones_var), ('跳过杰克入场券', self.corrosion_protect_jack_var))):
         check = ttk.Checkbutton(protected_row, text=label, variable=variable, command=self.on_rule_changed)
         check.grid(row=0, column=column, sticky='w', padx=(0, 12))
-        self.runtime_controls.append((check, 'normal'))
-    relic_grade_frame = ttk.Frame(corrosion_body, style='Panel.TFrame')
-    relic_grade_frame.grid(row=4, column=0, columnspan=4, sticky='ew', pady=(2, 3))
-    ttk.Label(relic_grade_frame, text='圣物保护品质', style='PanelMuted.TLabel').pack(side='left', padx=(0, 8))
-    configured_relic_grades = self.cfg.get('corrosionRelicProtectedGrades', list(range(10)))
-    configured_relic_grades = {safe_int(value, -1) for value in configured_relic_grades or []}
-    self.corrosion_relic_grade_vars = {}
-    for grade_value, grade_name in enumerate(('普通', '罕见', '稀有', '传说', '不朽', '至宝', '超凡', '天界', '神圣', '宇宙')):
-        variable = tk.BooleanVar(value=grade_value in configured_relic_grades)
-        self.corrosion_relic_grade_vars[grade_value] = variable
-        check = ttk.Checkbutton(relic_grade_frame, text=grade_name, variable=variable, command=self.on_rule_changed)
-        check.pack(side='left', padx=(0, 7))
         self.runtime_controls.append((check, 'normal'))
     self.corrosion_status_var = tk.StringVar(value='等待连接')
     resources_box, resources_body = card(magic, '账号资源监测', '按账号分别展示污染度、仓库占用与腐蚀触发状态。')
@@ -2602,6 +3156,19 @@ def _build_ui(self):
     self.auto_deposit_interval_spin.bind('<Return>', lambda _event: self.on_rule_changed())
     self.auto_deposit_interval_spin.bind('<FocusOut>', lambda _event: self.on_rule_changed())
     self.runtime_controls.append((self.auto_deposit_interval_spin, 'normal'))
+    self.auto_open_switch = ttk.Checkbutton(stash_body, text='定时自动开启宝箱',
+        variable=self.auto_open_boxes_var, command=self.apply_runtime_config)
+    self.auto_open_switch.pack(anchor='w', pady=(3, 5))
+    self.runtime_controls.append((self.auto_open_switch, 'normal'))
+    box_interval_row = ttk.Frame(stash_body, style='Panel.TFrame')
+    box_interval_row.pack(anchor='w', fill='x', pady=(0, 6))
+    ttk.Label(box_interval_row, text='开箱检测间隔（分钟）', style='PanelMuted.TLabel').pack(side='left', padx=(0, 7))
+    self.auto_box_interval_spin = ttk.Spinbox(box_interval_row, from_=1, to=1440, width=6,
+        textvariable=self.auto_box_interval_var, command=self.on_rule_changed)
+    self.auto_box_interval_spin.pack(side='left')
+    self.auto_box_interval_spin.bind('<Return>', lambda _event: self.on_rule_changed())
+    self.auto_box_interval_spin.bind('<FocusOut>', lambda _event: self.on_rule_changed())
+    self.runtime_controls.append((self.auto_box_interval_spin, 'normal'))
     trade_box, trade_body = card(warehouse_cards, '交易船', '查询参考价格并将符合条件的物品转入游戏内交易船。')
     trade_box.grid(row=0, column=1, sticky='nsew', padx=(6, 0), pady=(0, 12))
     self.auto_trade_ship_var = tk.BooleanVar(value=bool(self.cfg.get('autoTradeShip', False)) if self.license_valid else False)
@@ -2790,18 +3357,24 @@ def _build_ui(self):
     self.drop_records_tree.tag_configure('drop_grade_common', foreground=GRADE_COLORS.get('普通', '#7D7D7D'))
     configure_grade_tags(self.drop_records_tree)
     rare_box, rare_body = card(self.stats_tabs['rare'], '珍品掉落记录',
-        '超凡、天界、神圣、宇宙掉落时额外保存一份；相同物品叠加数量，并显示最近掉落时间与地图。')
+        '超凡、天界、神圣、宇宙掉落时额外保存；显示数量、地图、最近时间和本地参考报价缓存。')
     rare_box.grid(row=0, column=0, sticky='nsew')
     rare_body.columnconfigure(0, weight=1)
     rare_body.rowconfigure(1, weight=1)
     self.rare_drop_status_var = tk.StringVar(value='珍品累计 0 件')
     ttk.Label(rare_body, textvariable=self.rare_drop_status_var, style='PanelMuted.TLabel',
         wraplength=960).grid(row=0, column=0, columnspan=2, sticky='ew', pady=(0, 6))
-    rare_columns = ('品质', '物品', '数量', '最近地图', '最近掉落')
+    rare_columns = ('品质', '物品', '参考价格', '数量', '最近地图', '最近掉落')
     self.rare_drop_tree = ttk.Treeview(rare_body, columns=rare_columns, show='headings',
         height=10, style='Stats.Treeview')
-    for column, width in zip(rare_columns, (90, 300, 75, 180, 190)):
-        self.rare_drop_tree.heading(column, text=column)
+    self._rare_drop_sort = {'column': '最近掉落', 'reverse': True}
+    def sort_rare_drop_records(column):
+        state = self._rare_drop_sort
+        state['reverse'] = not state['reverse'] if state['column'] == column else column != '品质'
+        state['column'] = column
+        refresh_box_counts(True)
+    for column, width in zip(rare_columns, (90, 270, 100, 75, 180, 190)):
+        self.rare_drop_tree.heading(column, text=column, command=lambda key=column: sort_rare_drop_records(key))
         self.rare_drop_tree.column(column, width=width, minwidth=60, stretch=column == '物品')
     self.rare_drop_tree.grid(row=1, column=0, sticky='nsew')
     rare_scroll = ttk.Scrollbar(rare_body, orient='vertical', command=self.rare_drop_tree.yview)
@@ -2843,9 +3416,32 @@ def _build_ui(self):
     settings_box, settings_body = card(settings, '连接设置', '选项变更会保存到本地配置文件。')
     settings_box.grid(row=2, column=0, sticky='ew', pady=(0, 12))
     ttk.Checkbutton(settings_body, text='自动连接发现的游戏进程', variable=self.auto_attach_var, command=self.on_auto_attach_changed).pack(anchor='w', pady=3)
-    ttk.Checkbutton(settings_body, text='游戏异常退出后自动重启', variable=self.auto_restart_game_var, command=self.on_auto_restart_changed).pack(anchor='w', pady=3)
+    ttk.Checkbutton(settings_body, text='游戏异常退出或窗口卡死后自动重启', variable=self.auto_restart_game_var, command=self.on_auto_restart_changed).pack(anchor='w', pady=3)
     ttk.Checkbutton(settings_body, text='一键开启宿主机游戏', variable=self.auto_start_host_var, command=self.on_auto_start_options_changed).pack(anchor='w', pady=3)
     ttk.Checkbutton(settings_body, text='一键开启所选沙盒实例', variable=self.auto_start_sandbox_var, command=self.on_auto_start_options_changed).pack(anchor='w', pady=3)
+    restart_tuning = ttk.Frame(settings_body, style='Panel.TFrame')
+    restart_tuning.pack(fill='x', pady=(6, 2))
+    for column in range(2):
+        restart_tuning.columnconfigure(column, weight=1)
+    restart_spin_specs = (
+        ('卡死检测（秒）', self.restart_hang_seconds_var, 5, 600),
+        ('结束后等待（秒）', self.restart_wait_seconds_var, 0, 600),
+        ('重试间隔（秒）', self.restart_retry_seconds_var, 5, 3600),
+        ('最多启动次数', self.restart_max_attempts_var, 1, 20),
+    )
+    for index, (label, variable, minimum, maximum) in enumerate(restart_spin_specs):
+        cell = ttk.Frame(restart_tuning, style='Panel.TFrame')
+        cell.grid(row=index // 2, column=index % 2, sticky='w', padx=(0, 12), pady=3)
+        ttk.Label(cell, text=label, style='PanelMuted.TLabel').pack(side='left', padx=(0, 5))
+        spin = ttk.Spinbox(cell, from_=minimum, to=maximum, width=6, textvariable=variable,
+            command=self.on_rule_changed)
+        spin.pack(side='left')
+        spin.bind('<Return>', lambda _event: self.on_rule_changed())
+        spin.bind('<FocusOut>', lambda _event: self.on_rule_changed())
+    ttk.Checkbutton(settings_body, text='游戏启动后自动隐藏窗口', variable=self.restart_hide_window_var,
+        command=self.on_rule_changed).pack(anchor='w', pady=3)
+    ttk.Checkbutton(settings_body, text='游戏连接后立即检查并应用全部任务', variable=self.audit_tasks_on_start_var,
+        command=self.on_rule_changed).pack(anchor='w', pady=3)
     config_box, config_body = card(settings, '配置文件', '查看、重新加载或恢复默认设置。')
     config_box.grid(row=3, column=0, sticky='ew', pady=(0, 12))
     ttk.Button(config_body, text='打开配置文件', style='Utility.TButton', command=self.open_config_file).pack(side='left')
@@ -3024,9 +3620,23 @@ def _build_ui(self):
 
         auto_update_check = (bool(self.auto_update_check_var.get())
             if getattr(self, 'auto_update_check_var', None) is not None else True)
+        corrosion_category_rules = {
+            key: {
+                'enabled': variable.get() is True,
+                'maxGrade': CORROSION_GRADE_LABEL_TO_VALUE.get(
+                    self.corrosion_category_grade_vars[key].get(), legacy_max_grade),
+            }
+            for key, variable in self.corrosion_category_enabled_vars.items()
+        }
         cfg.update({
             'lastAutomationSettings': last_automation_settings,
             'autoUpdateCheck': auto_update_check,
+            'restartHangSeconds': max(5, min(600, safe_int(self.restart_hang_seconds_var.get(), 45))),
+            'restartWaitSeconds': max(0, min(600, safe_int(self.restart_wait_seconds_var.get(), 10))),
+            'restartRetrySeconds': max(5, min(3600, safe_int(self.restart_retry_seconds_var.get(), 60))),
+            'restartMaxAttempts': max(1, min(20, safe_int(self.restart_max_attempts_var.get(), 3))),
+            'restartHideWindowAfterLaunch': self.restart_hide_window_var.get() is True,
+            'auditTasksOnStart': self.audit_tasks_on_start_var.get() is True,
             'autoDepositAllItems': True,
             'extraDepositItemIds': [],
             'autoDepositIntervalMinutes': read_minutes(self.auto_deposit_interval_var, 10),
@@ -3056,11 +3666,13 @@ def _build_ui(self):
             'corrosionMinimumIntervalMs': read_minutes(self.corrosion_interval_var, 5) * 60000,
             'corrosionWarehouseThresholdPercent': max(1, min(100, safe_int(self.corrosion_warehouse_threshold_var.get(), 50))),
             'corrosionPollutionThreshold': max(0, min(1000000, safe_int(self.corrosion_pollution_threshold_var.get(), 300))),
+            'corrosionCategoryRules': corrosion_category_rules,
+            'corrosionProtectPriceCny': normalize_nonnegative_float(self.corrosion_protect_price_var.get(), 0.0),
             'corrosionProtectOfferingMaterials': self.corrosion_protect_offering_var.get() is True,
             'corrosionProtectSoulstones': self.corrosion_protect_soulstones_var.get() is True,
             'corrosionProtectJackTickets': self.corrosion_protect_jack_var.get() is True,
-            'corrosionProtectRelics': self.corrosion_protect_relics_var.get() is True,
-            'corrosionRelicProtectedGrades': sorted(grade for grade, variable in self.corrosion_relic_grade_vars.items() if variable.get()),
+            'corrosionProtectRelics': False,
+            'corrosionRelicProtectedGrades': [],
             'corrosionExcludeOfferingCoins': self.corrosion_protect_offering_var.get() is True,
             'corrosionProtectedGrades': [],
             'instantKill': False,
@@ -3091,19 +3703,40 @@ def _build_ui(self):
         self.corrosion_interval_var.set(str(self.cfg.get('corrosionMinimumIntervalMinutes', 5)))
         self.corrosion_warehouse_threshold_var.set(str(self.cfg.get('corrosionWarehouseThresholdPercent', 50)))
         self.corrosion_pollution_threshold_var.set(str(max(0, min(1000000, safe_int(self.cfg.get('corrosionPollutionThreshold'), 300)))))
+        self.corrosion_protect_price_var.set(f'{normalize_nonnegative_float(self.cfg.get("corrosionProtectPriceCny"), 0.0):g}')
         self.corrosion_protect_offering_var.set(self.cfg.get('corrosionProtectOfferingMaterials') is not False)
         self.corrosion_protect_soulstones_var.set(self.cfg.get('corrosionProtectSoulstones') is not False)
         self.corrosion_protect_jack_var.set(self.cfg.get('corrosionProtectJackTickets') is not False)
-        self.corrosion_protect_relics_var.set(self.cfg.get('corrosionProtectRelics') is not False)
-        grades = {safe_int(value, -1) for value in self.cfg.get('corrosionRelicProtectedGrades', list(range(10))) or []}
-        for grade, variable in self.corrosion_relic_grade_vars.items():
-            variable.set(grade in grades)
+        self.corrosion_protect_relics_var.set(False)
+        category_rules = self.cfg.get('corrosionCategoryRules') if isinstance(self.cfg.get('corrosionCategoryRules'), dict) else {}
+        for key, enabled_var in self.corrosion_category_enabled_vars.items():
+            rule = category_rules.get(key) if isinstance(category_rules.get(key), dict) else {}
+            enabled_var.set(rule.get('enabled') is True)
+            max_grade = normalize_corrosion_grade(rule.get('maxGrade', self.cfg.get('corrosionMaxGrade', 4)))
+            if not category_rules and max_grade == 0:
+                max_grade = 4
+            self.corrosion_category_grade_vars[key].set(CORROSION_GRADE_VALUE_TO_LABEL[max_grade])
+        self.restart_hang_seconds_var.set(str(max(5, min(600, safe_int(self.cfg.get('restartHangSeconds'), 45)))))
+        self.restart_wait_seconds_var.set(str(max(0, min(600, safe_int(self.cfg.get('restartWaitSeconds'), 10)))))
+        self.restart_retry_seconds_var.set(str(max(5, min(3600, safe_int(self.cfg.get('restartRetrySeconds'), 60)))))
+        self.restart_max_attempts_var.set(str(max(1, min(20, safe_int(self.cfg.get('restartMaxAttempts'), 3)))))
+        self.restart_hide_window_var.set(self.cfg.get('restartHideWindowAfterLaunch') is True)
+        self.audit_tasks_on_start_var.set(self.cfg.get('auditTasksOnStart') is not False)
         refresh_box_counts()
         refresh_warehouse_accounts()
         return result
 
     def configure_market_prices_with_warehouse(cfg=None):
         result = original_configure_market_prices(cfg)
+        cfg = cfg or self.cfg or {}
+        if (cfg.get('autoCorrosion') is True and
+                normalize_nonnegative_float(cfg.get('corrosionProtectPriceCny'), 0.0) > 0):
+            try:
+                self.market_price_service.set_enabled(True)
+                if self.backend.connected():
+                    self.sync_market_prices()
+            except Exception as exc:
+                self.thread_log(f'[自动腐蚀] 价格保护缓存同步失败：{str(exc)[:120]}')
         if self._warehouse_price_query_enabled:
             self.market_price_service.set_enabled(True)
         return result
@@ -3194,9 +3827,17 @@ def _build_ui(self):
 
     def price_update_with_warehouse_refresh(payload_json, payload):
         original_price_update_handler(payload_json, payload)
+        if (not getattr(self, 'shutting_down', False) and self.cfg.get('autoCorrosion') is True and
+                normalize_nonnegative_float(self.cfg.get('corrosionProtectPriceCny'), 0.0) > 0 and
+                self.cfg.get('autoTradeShip') is not True and self.backend.connected()):
+            try:
+                self.backend.rpc_all('setmarketprices', payload_json)
+            except Exception as exc:
+                self.thread_log(f'[自动腐蚀] 价格保护缓存同步失败：{str(exc)[:120]}')
         if not getattr(self, 'shutting_down', False):
             try:
                 self.after(0, render_warehouse)
+                self.after(0, lambda: refresh_box_counts(True))
             except Exception:
                 pass
 
@@ -3654,13 +4295,14 @@ def _build_ui(self):
         mode = 'wide' if width >= 1400 else 'compact' if width >= 1150 else 'narrow'
         if mode != self._ui_responsive_header_mode:
             self._ui_responsive_header_mode = mode
+            apply_account_card_layouts(mode)
             top_tools.grid_configure(row=0 if mode == 'wide' else 1,
                 column=1 if mode == 'wide' else 0, columnspan=1 if mode == 'wide' else 2,
                 rowspan=1, sticky='e' if mode == 'wide' else 'w',
                 padx=(14, 0) if mode == 'wide' else (0, 0), pady=(0, 0) if mode == 'wide' else (8, 0))
             for index, widget in enumerate((self.stop_all_button, self.hide_game_button, self.exit_button)):
                 widget.grid_configure(row=1 if mode == 'narrow' else 0,
-                    column=index if mode == 'narrow' else index + 3)
+                    column=index if mode == 'narrow' else index + 4)
         if getattr(self, '_current_ui_page', None) == 'warehouse':
             schedule_warehouse_card_draw()
 
@@ -3720,3 +4362,4 @@ def _build_ui(self):
     self.after_idle(lambda: self.protocol('WM_DELETE_WINDOW', close_to_tray))
     self.exit_button.configure(command=self.on_close)
     self.auto_start_button.configure(command=start_automation)
+

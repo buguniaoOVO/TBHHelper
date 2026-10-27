@@ -1,14 +1,32 @@
 'use strict';
 
-var SCRIPT_BUILD_TAG = '20261025-1537-trade-time-lock';
-// Frida reports the loaded PE image size; the on-disk DLL size is 111653376.
-var GAME_ASSEMBLY_130_SIZE = 114597888;
+var SCRIPT_BUILD_TAG = '20261027-build26211490-compat';
+// Frida reports the loaded PE image size; the on-disk DLL size is 111802368.
+var GAME_ASSEMBLY_VERIFIED_SIZE = 114753536;
+var g_gameBuildMetadataVerified = false;
 
 function requireCurrentGameBuild() {
-    if (GA.size !== GAME_ASSEMBLY_130_SIZE) {
+    if (GA.size !== GAME_ASSEMBLY_VERIFIED_SIZE) {
         throw new Error('当前游戏版本未校验：GameAssembly.dll 大小=' + GA.size +
-            '，已验证的 1.3.0 大小=' + GAME_ASSEMBLY_130_SIZE);
+            '，已验证的 2026-10-27 游戏模块大小=' + GAME_ASSEMBLY_VERIFIED_SIZE);
     }
+    if (g_gameBuildMetadataVerified) return;
+    var anchors = [
+        {ns:'', owner:'Cube', name:'jix', argc:0, rva:0x962470, result:'System.Boolean'},
+        {ns:'', owner:'sj', name:'iti', argc:2, rva:0x9181e0, result:'System.Void'},
+        {ns:'TaskbarHero.UI', owner:'StageBox', name:'nzr', argc:1, rva:0xbe0330, result:'System.Void'}
+    ];
+    anchors.forEach(function (anchor) {
+        var owner = findClassByEnumeratedName(anchor.ns, anchor.owner);
+        var method = isBadPtr(owner) ? ptr(0) : il2cpp.classGetMethod(
+            owner, Memory.allocUtf8String(anchor.name), anchor.argc);
+        if (isBadPtr(method) || il2cpp.methodGetParamCount(method) !== anchor.argc ||
+                cstr(il2cpp.typeGetName(il2cpp.methodGetReturnType(method))) !== anchor.result ||
+                !methodPtr(method).equals(B.add(anchor.rva))) {
+            throw new Error('游戏接口指纹不匹配：' + anchor.owner + '.' + anchor.name + '；已阻止旧接口调用');
+        }
+    });
+    g_gameBuildMetadataVerified = true;
 }
 var TRADE_SHIP_X_EXECUTION_ENABLED = true;
 
@@ -646,40 +664,40 @@ function categoryFromItem(meta, allowPrefixFallback) {
 }
 
 var DIRECT = {
-    synthesisBackend: { rva: 0x8c1260, className: 'Cube', methodName: 'ipb', friendly: '后台合成' },
-    synthesis: { rva: 0x8c14e0, className: 'Cube', methodName: 'ipd', friendly: '合成' },
-    craftingBackend: { rva: 0x8c1970, className: 'Cube', methodName: 'ipf', friendly: '后台制作' },
-    crafting: { rva: 0x8c1a60, className: 'Cube', methodName: 'ipg', friendly: '制作' }
+    synthesisBackend: { rva: 0x8c1260, className: 'Cube', methodName: 'ipe', friendly: '后台合成' },
+    synthesis: { rva: 0x8c14e0, className: 'Cube', methodName: 'ipg', friendly: '合成' },
+    craftingBackend: { rva: 0x8c1970, className: 'Cube', methodName: 'ipi', friendly: '后台制作' },
+    crafting: { rva: 0x8c1a60, className: 'Cube', methodName: 'ipj', friendly: '制作' }
 };
 
 var SYNTHESIS_BRIDGE = {
-    slotCount: { rva: 0x8b4380, methodName: 'ilm', argCount: 0 },
-    selectRecipe: { rva: 0x8b6410, methodName: 'imn', argCount: 1 },
-    selectSynthesisType: { rva: 0x8b5150, methodName: 'imc', argCount: 1 },
-    reset: { rva: 0x8c3350, methodName: 'ips', argCount: 0 },
-    addSlot: { rva: 0x8c5080, methodName: 'ioo', argCount: 2 },
-    executeBackend: { rva: 0x8c1260, methodName: 'ipb', argCount: 0 },
-    getSlotItem: { rva: 0x8be440, className: 'Cube', methodName: 'iop', argCount: 2 },
-    getItemUid: { rva: 0x908400, className: 'ty', methodName: 'iwu', argCount: 0 },
-    getItemTier: { rva: 0x908600, className: 'ty', methodName: 'ixg', argCount: 0 }
+    slotCount: { rva: 0x8b4380, methodName: 'ilp', argCount: 0 },
+    selectRecipe: { rva: 0x8b6410, methodName: 'imq', argCount: 1 },
+    selectSynthesisType: { rva: 0x8b5150, methodName: 'imf', argCount: 1 },
+    reset: { rva: 0x8c3350, methodName: 'ipv', argCount: 0 },
+    addSlot: { rva: 0x8c5080, methodName: 'ior', argCount: 2 },
+    executeBackend: { rva: 0x8c1260, methodName: 'ipe', argCount: 0 },
+    getSlotItem: { rva: 0x8be440, className: 'Cube', methodName: 'ios', argCount: 2 },
+    getItemUid: { rva: 0x908400, className: 'ty', methodName: 'iwx', argCount: 0 },
+    getItemTier: { rva: 0x908600, className: 'ty', methodName: 'ixj', argCount: 0 }
 };
 
 var SYNTHESIS_BRIDGE_CURRENT = {
     slotCount: null,
-    selectRecipe: { rva: 0x94d7b0, methodName: 'jke', argCount: 1 },
-    selectSpecificRecipe: { rva: 0x94da20, methodName: 'jkf', argCount: 1 },
-    selectSynthesisType: { rva: 0x94c450, methodName: 'jjs', argCount: 1 },
-    reset: { rva: 0x960ca0, methodName: 'jom', argCount: 0 },
-    addSlot: { rva: 0x9558d0, methodName: 'jmg', argCount: 2 },
-    executeBackend: { rva: 0x958550, methodName: 'jms', argCount: 0 },
-    triggerRecipe: { rva: 0x950d90, methodName: 'jla', argCount: 0 },
-    refreshRecipe: { rva: 0x94f240, methodName: 'jkq', argCount: 1 },
-    busy: { rva: 0x94afa0, methodName: 'jiu', argCount: 0 },
-    getSlotList: { rva: 0x94af00, methodName: 'jis', argCount: 0 },
-    getSlotUid: { rva: 0xa58570, namespace: 'TaskbarHero', className: 'CubeInData', methodName: 'lew', argCount: 0 },
-    getSlotItem: { rva: 0x955b70, methodName: 'jmh', argCount: 2 },
-    getItemUid: { rva: 0x9bfa00, className: 'vs', methodName: 'jwh', argCount: 0 },
-    getItemTier: { rva: 0x9bfbd0, className: 'vs', methodName: 'jws', argCount: 0 }
+    selectRecipe: { rva: 0x964e80, methodName: 'jki', argCount: 1 },
+    selectSpecificRecipe: { rva: 0x9650f0, methodName: 'jkj', argCount: 1 },
+    selectSynthesisType: { rva: 0x963920, methodName: 'jjv', argCount: 1 },
+    reset: { rva: 0x9783d0, methodName: 'joq', argCount: 0 },
+    addSlot: { rva: 0x96d000, methodName: 'jmk', argCount: 2 },
+    executeBackend: { rva: 0x96fc80, methodName: 'jmw', argCount: 0 },
+    triggerRecipe: { rva: 0x968460, methodName: 'jle', argCount: 0 },
+    refreshRecipe: { rva: 0x966910, methodName: 'jku', argCount: 1 },
+    busy: { rva: 0x962470, methodName: 'jix', argCount: 0 },
+    getSlotList: { rva: 0x9623d0, methodName: 'jiv', argCount: 0 },
+    getSlotUid: { rva: 0xa75d60, namespace: 'TaskbarHero', className: 'CubeInData', methodName: 'lfa', argCount: 0 },
+    getSlotItem: { rva: 0x96d2a0, methodName: 'jml', argCount: 2 },
+    getItemUid: { rva: 0x9c5960, className: 'vs', methodName: 'jwl', argCount: 0 },
+    getItemTier: { rva: 0x9c5b30, className: 'vs', methodName: 'jww', argCount: 0 }
 };
 var SYNTHESIS_AUTO_FILL_UI_CURRENT = {
     managerNamespace: 'TaskbarHero',
@@ -699,7 +717,7 @@ var SYNTHESIS_AUTO_FILL_UI_CURRENT = {
     clickEventFieldName: 'm_OnClick',
     clickEventFieldOffset: 0x100,
     unityEventInvoke: {
-        rva: 0x4917be0,
+        rva: 0x493e670,
         namespace: 'UnityEngine.Events',
         className: 'UnityEvent',
         methodName: 'Invoke',
@@ -763,61 +781,61 @@ var STAGEBOX_AUTO_OPEN = {
 };
 
 var AUTO_DEPOSIT_BRIDGE = {
-    firstEmptyIndex: { rva: 0x91cfd0, className: 'Stash', methodName: 'jwl', argCount: 0 },
-    pageFromIndex: { rva: 0x91d290, className: 'Stash', methodName: 'jwm', argCount: 1 },
-    addToPage: { rva: 0x91cd20, className: 'Stash', methodName: 'jwj', argCount: 2 },
-    removeFromInventory: { rva: 0x8fe370, className: 'tx', methodName: 'iuw', argCount: 1 }
+    firstEmptyIndex: { rva: 0x91cfd0, className: 'Stash', methodName: 'jwo', argCount: 0 },
+    pageFromIndex: { rva: 0x91d290, className: 'Stash', methodName: 'jwp', argCount: 1 },
+    addToPage: { rva: 0x91cd20, className: 'Stash', methodName: 'jwm', argCount: 2 },
+    removeFromInventory: { rva: 0x8fe370, className: 'tx', methodName: 'iuz', argCount: 1 }
 };
 var AUTO_DEPOSIT_BRIDGE_CURRENT = {
-    moveRequest: { rva: 0x901080, className: 'sj', methodName: 'itf', argCount: 2 }
+    moveRequest: { rva: 0x9181e0, className: 'sj', methodName: 'iti', argCount: 2 }
 };
 var AUTO_TRADE_SHIP_BRIDGE = {
-    moveDirect: { rva: 0x8867f0, className: 'ra', methodName: 'hyc', argCount: 4 },
-    firstAvailableSlot: { rva: 0x93e420, className: 'uw', methodName: 'jlb', argCount: 0 },
-    validSlotCount: { rva: 0x93e210, className: 'uw', methodName: 'jla', argCount: 0 },
-    cacheForSlot: { rva: 0x93dda0, className: 'uw', methodName: 'jkw', argCount: 1 },
+    moveDirect: { rva: 0x8867f0, className: 'ra', methodName: 'hyf', argCount: 4 },
+    firstAvailableSlot: { rva: 0x93e420, className: 'uw', methodName: 'jle', argCount: 0 },
+    validSlotCount: { rva: 0x93e210, className: 'uw', methodName: 'jle', argCount: 0 },
+    cacheForSlot: { rva: 0x93dda0, className: 'uw', methodName: 'jkz', argCount: 1 },
     cacheOccupied: {
         rva: 0x9510c0,
         namespace: 'TaskbarHero',
         className: 'TradingStashCache',
-        methodName: 'jkc',
+        methodName: 'jkf',
         argCount: 0
     },
-    waitingContains: { rva: 0x959b20, className: 'vf', methodName: 'jsq', argCount: 1 },
-    downloadBlocked: { rva: 0x959f10, className: 'vf', methodName: 'mfw', argCount: 1 },
+    waitingContains: { rva: 0x959b20, className: 'vf', methodName: 'jst', argCount: 1 },
+    downloadBlocked: { rva: 0x959f10, className: 'vf', methodName: 'mgl', argCount: 1 },
     uploadButton: {
         rva: 0xa341f0,
         namespace: 'TaskbarHero.UI',
         className: 'TradingStashSlot',
-        methodName: 'llc',
+        methodName: 'llr',
         argCount: 0
     },
     confirmButton: {
         rva: 0xa66310,
         namespace: 'TaskbarHero.UI',
         className: 'UI_TradingStash',
-        methodName: 'lzb',
+        methodName: 'lzq',
         argCount: 0
     },
     getSlot: {
         rva: 0xa66400,
         namespace: 'TaskbarHero.UI',
         className: 'UI_TradingStash',
-        methodName: 'lzf',
+        methodName: 'lzu',
         argCount: 1
     },
     cooldownActive: {
         rva: 0xa34130,
         namespace: 'TaskbarHero.UI',
         className: 'TradingStashSlot',
-        methodName: 'llb',
+        methodName: 'llq',
         argCount: 0
     },
-    cooldownEndForSlot: { rva: 0x9595c0, className: 'vf', methodName: 'jsm', argCount: 2 },
+    cooldownEndForSlot: { rva: 0x9595c0, className: 'vf', methodName: 'jsp', argCount: 2 },
     cooldownSyncRequest: {
         rva: 0x9af420,
         className: 'wn',
-        methodName: 'kxo',
+        methodName: 'kyd',
         argCount: 1
     },
     cooldownSyncCallback: {
@@ -830,18 +848,18 @@ var AUTO_TRADE_SHIP_BRIDGE = {
         rva: 0xa34650,
         namespace: 'TaskbarHero.UI',
         className: 'TradingStashSlot',
-        methodName: 'lld',
+        methodName: 'lls',
         argCount: 1
     },
     pointerEnter: {
-        rva: 0xa326b0,
+        rva: 0xbcfa30,
         namespace: 'TaskbarHero.UI',
         className: 'TradingStashSlot',
         methodName: 'OnPointerEnter',
         argCount: 1
     },
     pointerExit: {
-        rva: 0xa326e0,
+        rva: 0xbcfa60,
         namespace: 'TaskbarHero.UI',
         className: 'TradingStashSlot',
         methodName: 'OnPointerExit',
@@ -851,39 +869,39 @@ var AUTO_TRADE_SHIP_BRIDGE = {
         rva: 0xa34d30,
         namespace: 'TaskbarHero.UI',
         className: 'TradingStashSlot',
-        methodName: 'lli',
+        methodName: 'llx',
         argCount: 0
     },
     buttonPress: {
-        rva: 0x47bdb70,
+        rva: 0x4a554b0,
         namespace: 'UnityEngine.UI',
         className: 'Button',
         methodName: 'Press',
         argCount: 0
     },
     gameObjectActiveSelf: {
-        rva: 0x465dc90,
+        rva: 0x48f5220,
         namespace: 'UnityEngine',
         className: 'GameObject',
         methodName: 'get_activeSelf',
         argCount: 0
     },
     componentGameObject: {
-        rva: 0x46586f0,
+        rva: 0x48efc80,
         namespace: 'UnityEngine',
         className: 'Component',
         methodName: 'get_gameObject',
         argCount: 0
     },
     gameObjectActiveInHierarchy: {
-        rva: 0x465dbd0,
+        rva: 0x48f5160,
         namespace: 'UnityEngine',
         className: 'GameObject',
         methodName: 'get_activeInHierarchy',
         argCount: 0
     },
     unityEventInvoke: {
-        rva: 0x46a6d20,
+        rva: 0x493e670,
         namespace: 'UnityEngine.Events',
         className: 'UnityEvent',
         methodName: 'Invoke',
@@ -940,21 +958,21 @@ var AUTO_TRADE_SHIP_BRIDGE = {
 // 1.2.8 uses a value-type MoveRequest and a different trading-slot UI layout.
 // Keep its entry points separate from the older trading-ship bridge.
 var AUTO_TRADE_SHIP_BRIDGE_CURRENT = {
-    validateMove: { rva: 0x901310, className: 'sj', methodName: 'itg', argCount: 1 },
+    validateMove: { rva: 0x918470, className: 'sj', methodName: 'itj', argCount: 1 },
     moveRequest: AUTO_DEPOSIT_BRIDGE_CURRENT.moveRequest,
-    // Current runtime: nwx is only a Boolean eligibility check. nxb is the
+    // Current runtime: nwx is only a Boolean eligibility check. nxg is the
     // native handler wired to the green upload-confirm action; it builds the
-    // confirmation callback and calls UI_TradingStash.opw(Action) itself.
-    uploadSlot: { rva: 0xbb9ba0, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'nxb', argCount: 0 },
-    undoWaiting: { rva: 0xbbb2b0, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'nxk', argCount: 0 },
-    clearWaitingDisplay: { rva: 0xbb8fe0, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'nwr', argCount: 0 },
-    unityEventInvoke: { rva: 0x491c790, namespace: 'UnityEngine.Events', className: 'UnityEvent', imageName: 'UnityEngine.CoreModule.dll', methodName: 'Invoke', argCount: 0 },
-    pointerEnter: { rva: 0xbb8000, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'OnPointerEnter', argCount: 1 },
-    pointerExit: { rva: 0xbb8030, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'OnPointerExit', argCount: 1 },
-    buttonPress: { rva: 0x4a335d0, namespace: 'UnityEngine.UI', className: 'Button', imageName: 'UnityEngine.UI.dll', methodName: 'Press', argCount: 0 },
-    componentGameObject: { rva: 0x48cdda0, namespace: 'UnityEngine', className: 'Component', imageName: 'UnityEngine.CoreModule.dll', methodName: 'get_gameObject', argCount: 0 },
-    gameObjectActiveSelf: { rva: 0x48d3340, namespace: 'UnityEngine', className: 'GameObject', imageName: 'UnityEngine.CoreModule.dll', methodName: 'get_activeSelf', argCount: 0 },
-    gameObjectActiveInHierarchy: { rva: 0x48d3280, namespace: 'UnityEngine', className: 'GameObject', imageName: 'UnityEngine.CoreModule.dll', methodName: 'get_activeInHierarchy', argCount: 0 },
+    // confirmation callback and calls UI_TradingStash.oqb(Action) itself.
+    uploadSlot: { rva: 0xbd15d0, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'nxg', argCount: 0 },
+    undoWaiting: { rva: 0xbd2ce0, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'nxp', argCount: 0 },
+    clearWaitingDisplay: { rva: 0xbd0a10, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'nww', argCount: 0 },
+    unityEventInvoke: { rva: 0x493e670, namespace: 'UnityEngine.Events', className: 'UnityEvent', imageName: 'UnityEngine.CoreModule.dll', methodName: 'Invoke', argCount: 0 },
+    pointerEnter: { rva: 0xbcfa30, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'OnPointerEnter', argCount: 1 },
+    pointerExit: { rva: 0xbcfa60, namespace: 'TaskbarHero.UI', className: 'TradingStashSlot', methodName: 'OnPointerExit', argCount: 1 },
+    buttonPress: { rva: 0x4a554b0, namespace: 'UnityEngine.UI', className: 'Button', imageName: 'UnityEngine.UI.dll', methodName: 'Press', argCount: 0 },
+    componentGameObject: { rva: 0x48efc80, namespace: 'UnityEngine', className: 'Component', imageName: 'UnityEngine.CoreModule.dll', methodName: 'get_gameObject', argCount: 0 },
+    gameObjectActiveSelf: { rva: 0x48f5220, namespace: 'UnityEngine', className: 'GameObject', imageName: 'UnityEngine.CoreModule.dll', methodName: 'get_activeSelf', argCount: 0 },
+    gameObjectActiveInHierarchy: { rva: 0x48f5160, namespace: 'UnityEngine', className: 'GameObject', imageName: 'UnityEngine.CoreModule.dll', methodName: 'get_activeInHierarchy', argCount: 0 },
     tradingStashOffset: 0x108,
     slotListOffset: 0x78,
     slotIndexOffset: 0xa8,
@@ -968,12 +986,12 @@ var AUTO_TRADE_SHIP_BRIDGE_CURRENT = {
     saveDataItemUidOffset: 0x18
 };
 var FULL_BACKPACK_DEPOSIT_BRIDGE = {
-    depositAll: { rva: 0x888450, className: 'ra', methodName: 'hyk', argCount: 2 },
+    depositAll: { rva: 0x888450, className: 'ra', methodName: 'hyn', argCount: 2 },
     switchPage: {
         rva: 0xa4c2c0,
         namespace: 'TaskbarHero.UI',
         className: 'UI_RemakeStash',
-        methodName: 'loq',
+        methodName: 'lpf',
         argCount: 1
     },
     singletonGetterRva: 0x29b0100,
@@ -982,15 +1000,15 @@ var FULL_BACKPACK_DEPOSIT_BRIDGE = {
     currentPageOffset: 0xc0
 };
 var FULL_BACKPACK_DEPOSIT_BRIDGE_CURRENT = {
-    depositAll: { rva: 0x913cf0, className: 'sj', methodName: 'itp', argCount: 2 },
+    depositAll: { rva: 0x91ae90, className: 'sj', methodName: 'itw', argCount: 2 },
     switchPage: {
-        rva: 0xbe08b0,
+        rva: 0xbeef30,
         namespace: 'TaskbarHero.UI',
         className: 'UI_RemakeStash',
         methodName: 'ocx',
         argCount: 1
     },
-    currentPageOffset: 0xc8
+    currentPageOffset: 0xe8
 };
 var AUTO_BOSS_STAGE_BRIDGE = {
     cacheByKeyRva: 0x930070,
@@ -1000,10 +1018,10 @@ var AUTO_BOSS_STAGE_BRIDGE = {
 };
 var AUTO_BOSS_STAGE_BRIDGE_CURRENT = {
     cacheByKey: null,
-    validateEnter: { rva: 0xa34c40, className: 'xi', methodName: 'kxc', argCount: 1 },
-    enterStage: { rva: 0xa35030, className: 'xi', methodName: 'kxe', argCount: 2 },
-    validatePlague: { rva: 0xa34db0, className: 'xi', methodName: 'kxd', argCount: 1 },
-    returnScene: { rva: 0xa36590, className: 'xi', methodName: 'kxq', argCount: 2 }
+    validateEnter: { rva: 0xa536c0, className: 'xi', methodName: 'kxg', argCount: 1 },
+    enterStage: { rva: 0xa53ab0, className: 'xi', methodName: 'kxi', argCount: 2 },
+    validatePlague: { rva: 0xa53830, className: 'xi', methodName: 'kxh', argCount: 1 },
+    returnScene: { rva: 0xa55010, className: 'xi', methodName: 'kxu', argCount: 2 }
 };
 var AUTO_BOSS_TARGETS = {
     torment: { itemKey: 190004, name: '折磨', stageKey: 4310, difficulty: 3, act: 3, stageNo: 10, stageType: 1 },
@@ -1272,20 +1290,20 @@ function resolveSynthesisBridge() {
     var getItemUid = resolveCubeBridgeMethod(profile.getItemUid);
     var getItemTier = resolveCubeBridgeMethod(profile.getItemTier);
     if (profile === SYNTHESIS_BRIDGE_CURRENT) {
-        verifyManagedMethodShape('Cube.jke', selectRecipe, 'System.Boolean', ['ERecipeType']);
-        verifyManagedMethodShape('Cube.jkf', selectSpecificRecipe, 'System.Boolean', ['xp']);
-        verifyManagedMethodShape('Cube.jjs', selectSynthesisType, 'System.Void', ['EItemSynthesisType']);
-        verifyManagedMethodShape('Cube.jom', reset, 'System.Void', []);
-        verifyManagedMethodShape('Cube.jmg', addSlot, 'EAddCubeResult', ['ESlotType', 'System.Int32']);
-        verifyManagedMethodShape('Cube.jms', executeBackend, 'Cysharp.Threading.Tasks.UniTask', []);
-        verifyManagedMethodShape('Cube.jla', triggerRecipe, 'Cysharp.Threading.Tasks.UniTaskVoid', []);
-        verifyManagedMethodShape('Cube.jkq', refreshRecipe, 'System.Void', ['System.Int64']);
-        verifyManagedMethodShape('Cube.jiu', busy, 'System.Boolean', []);
+        verifyManagedMethodShape('Cube.jki', selectRecipe, 'System.Boolean', ['ERecipeType']);
+        verifyManagedMethodShape('Cube.jkj', selectSpecificRecipe, 'System.Boolean', ['xp']);
+        verifyManagedMethodShape('Cube.jjv', selectSynthesisType, 'System.Void', ['EItemSynthesisType']);
+        verifyManagedMethodShape('Cube.joq', reset, 'System.Void', []);
+        verifyManagedMethodShape('Cube.jmk', addSlot, 'EAddCubeResult', ['ESlotType', 'System.Int32']);
+        verifyManagedMethodShape('Cube.jmw', executeBackend, 'Cysharp.Threading.Tasks.UniTask<System.Boolean>', []);
+        verifyManagedMethodShape('Cube.jle', triggerRecipe, 'Cysharp.Threading.Tasks.UniTaskVoid', []);
+        verifyManagedMethodShape('Cube.jku', refreshRecipe, 'System.Void', ['System.Int64']);
+        verifyManagedMethodShape('Cube.jix', busy, 'System.Boolean', []);
         verifyManagedMethodShape('Cube.jio', getSlotList, 'IReadOnlyList', []);
         verifyManagedMethodShape('CubeInData.les', getSlotUid, 'System.UInt64', []);
-        verifyManagedMethodShape('Cube.jmh', getSlotItem, 'vs', ['ESlotType', 'System.Int32']);
-        verifyManagedMethodShape('vs.jwh', getItemUid, 'System.UInt64', []);
-        verifyManagedMethodShape('vs.jws', getItemTier, 'System.Int32', []);
+        verifyManagedMethodShape('Cube.jml', getSlotItem, 'vs', ['ESlotType', 'System.Int32']);
+        verifyManagedMethodShape('vs.jwl', getItemUid, 'System.UInt64', []);
+        verifyManagedMethodShape('vs.jww', getItemTier, 'System.Int32', []);
     }
     var autoFillEventInvoke = null;
     if (profile === SYNTHESIS_BRIDGE_CURRENT) {
@@ -1395,6 +1413,8 @@ function resolveAutoDepositBridge() {
     if (g_autoDepositBridgeResolved) return g_autoDepositBridgeResolved;
     if (synthesisBridgeProfile() === SYNTHESIS_BRIDGE_CURRENT) {
         var moveRequest = resolveCubeBridgeMethod(AUTO_DEPOSIT_BRIDGE_CURRENT.moveRequest);
+        verifyManagedMethodShape('sj.iti', moveRequest, 'System.Void',
+            ['TaskbarHero.MoveRequest', 'System.Action<TaskbarHero.MoveResult>']);
         // The game stores stash slots in PlayerSaveData; derive the first free
         // flat index from the verified inventory snapshot rather than calling
         // the old Stash helper, whose signature changed in the current build.
@@ -1417,7 +1437,7 @@ function resolveAutoDepositBridge() {
             pageFromIndex: currentPage,
             moveRequest: moveRequest
         };
-        depositLog('1.2.8 自动存仓移动请求已解析并完成版本校验。');
+        depositLog('自动存仓移动请求已通过当前游戏构建校验。');
         return g_autoDepositBridgeResolved;
     }
     var firstEmptyIndex = resolveCubeBridgeMethod(AUTO_DEPOSIT_BRIDGE.firstEmptyIndex);
@@ -1723,6 +1743,13 @@ function resolveFullBackpackDepositBridge() {
         ? FULL_BACKPACK_DEPOSIT_BRIDGE_CURRENT : FULL_BACKPACK_DEPOSIT_BRIDGE;
     var depositAll = resolveCubeBridgeMethod(profile.depositAll);
     var switchPage = resolveCubeBridgeMethod(profile.switchPage);
+    if (profile === FULL_BACKPACK_DEPOSIT_BRIDGE_CURRENT) {
+        verifyManagedMethodShape('sj.itw', depositAll, 'System.Void', ['ESlotType', 'ESlotType']);
+        verifyManagedMethodShape('UI_RemakeStash.ocx', switchPage, 'System.Void', ['System.Int32']);
+        var stashInfo = classInfo('TaskbarHero.UI', 'UI_RemakeStash');
+        if (stashInfo.fields.bkox !== profile.currentPageOffset || stashInfo.fieldTypes.bkox !== 'System.Int32')
+            throw new Error('仓库当前页字段与当前游戏构建不符');
+    }
     depositAll.fn = new NativeFunction(depositAll.ptr, 'void', ['pointer', 'int', 'int', 'pointer']);
     switchPage.fn = new NativeFunction(switchPage.ptr, 'void', ['pointer', 'int', 'pointer']);
     g_fullBackpackDepositBridgeResolved = {
@@ -1893,8 +1920,8 @@ function createNativeMoveRequest(source, targetSlotType, targetIndex, moveType) 
     })) {
         throw new Error('MoveRequest 槽位字段无效：' + JSON.stringify(values));
     }
-    // MoveRequest.ivk() rejects MoveQuantity <= 0. A zero quantity reached
-    // sj.itf in earlier builds and surfaced as a native "system error".
+    // MoveRequest.ivn() rejects MoveQuantity <= 0. A zero quantity reached
+    // sj.iti in earlier builds and surfaced as a native "system error".
     var quantity = Math.max(1, parseInt(source.quantity, 10) || 1);
     var request = Memory.alloc(24);
     request.writeS32(sourceType);
@@ -2010,7 +2037,7 @@ function validateCubeSynthesisSelection(bridge, expectedType) {
     var actualType = staticData.add(bridge.current ? 0x244 : 0x254).readS32();
     if (isBadPtr(recipe)) throw new Error('合成配方初始化失败');
     if (bridge.current) {
-        var recipeTypeMethod = findMethodInfoByClassMethod('', 'xp', 'led');
+        var recipeTypeMethod = findMethodInfoByClassMethod('', 'xp', 'lel');
         if (isBadPtr(recipeTypeMethod)) throw new Error('合成配方类型入口缺失');
         var getRecipeType = new NativeFunction(methodPtr(recipeTypeMethod), 'int', ['pointer', 'pointer']);
         if ((getRecipeType(recipe, recipeTypeMethod) | 0) !== 1) {
@@ -2323,7 +2350,7 @@ function tryNativeSynthesisAutoFill(bridge, item, batch) {
     try {
         var fixedLevelState = syncSynthesisFixedLevelToggle();
         // Invoke the same Unity onClick event wired to the game's visible
-        // "自动填充" button. Cube.jby is a lower-level helper and can ignore
+        // "自动填充" button. Cube.jcb is a lower-level helper and can ignore
         // the selected category/quality filters.
         var clickEvent = resolveSynthesisAutoFillClickEvent();
         bridge.autoFillEventInvoke.fn(clickEvent, bridge.autoFillEventInvoke.mi);
@@ -2744,8 +2771,8 @@ function processNativeSynthesisQueueItem(item) {
         '，程序未按材料阶级预筛，选中 9/9。');
     emit('auto_synthesis_called', {
         mode: 'native',
-        methodName: bridge.current ? 'Cube.jkw (完整原生执行流程)' :
-            'Cube.ips -> Cube.ioo x9 -> Cube.ipb',
+        methodName: bridge.current ? 'Cube.jkz (完整原生执行流程)' :
+            'Cube.ipv -> Cube.ior x9 -> Cube.ipe',
         rva: '0x' + (bridge.current ? bridge.triggerRecipe.ptr : bridge.executeBackend.ptr).sub(B).toString(16),
         runCount: g_runCount,
         added: item.added,
@@ -2834,7 +2861,10 @@ function ensureUpdateHook() {
                 g_activeAutomationAction = item.action || 'direct';
                 g_queueLastProcessedAt = Date.now();
                 try {
-                    if (item.action === 'failedExchangeRecovery') {
+                    if (item.action === 'compatibilityRead') {
+                        item.resolve(JSON.stringify({status:'SUCCESS', mainThread:true, pid:Process.id,
+                            frameRate:readFridaFrameLimit(resolveFridaFrameLimitBridge())}));
+                    } else if (item.action === 'failedExchangeRecovery') {
                         processFailedExchangeRecovery(item);
                     } else if (item.action === 'boxOpen') {
                         if (!g_boxOpenDispatching && !g_boxOpenInFlight &&
@@ -2896,7 +2926,7 @@ function ensureUpdateHook() {
                     }
                 } catch (e) {
                     g_failedCount++;
-                    if (item.action === 'frameLimit' || item.action === 'backgroundMode') {
+                    if (item.action === 'frameLimit' || item.action === 'backgroundMode' || item.action === 'compatibilityRead') {
                         if (item.resolve) item.resolve(JSON.stringify({status:'FAILED', error:chineseError(e)}));
                     } else if (item.action === 'corrosionBatch' || item.action === 'corrosionFinish') {
                         g_corrosionQueued = false;
@@ -3520,7 +3550,7 @@ function resolveCurrentBoxContentField(k) {
         if (typeName.indexOf('Dictionary<') < 0 ||
                 typeName.indexOf('ContentType') < 0) continue;
         candidates.push(field);
-        if (name === 'bimv') preferred = field;
+        if (name === 'binj') preferred = field;
     }
     if (preferred) return (g_currentBoxContentField = preferred);
     if (candidates.length === 1) return (g_currentBoxContentField = candidates[0]);
@@ -3662,7 +3692,7 @@ var g_failedExchangeRecoveryQueued = false;
 var g_failedExchangeRejections = [];
 function nativeExchangeState() {
     var owner = classInfo('', 'zw'), state = classInfo('', 'zc');
-    if (state.fields.bjjn == null) return null;
+    if (state.fields.bjkb == null) return null;
     if (!g_exchangePendingField) {
         Object.keys(owner.fieldTypes).some(function (name) {
             var field = owner.fieldInfos[name];
@@ -3676,12 +3706,12 @@ function nativeExchangeState() {
     il2cpp.fieldStaticGetValue(g_exchangePendingField, storage);
     var manager = storage.readPointer();
     if (isBadPtr(manager) || !il2cpp.objectGetClass(manager).equals(state.klass)) return null;
-    var receipt = manager.add(state.fields.bjjn).readPointer();
+    var receipt = manager.add(state.fields.bjkb).readPointer();
     if (isBadPtr(receipt)) return null;
     var fields = classInfo('TaskbarHero', 'ExchangeReceipt').fields;
     return {manager:manager, receipt:receipt,
-        busy:state.fields.bjjr == null || !!manager.add(state.fields.bjjr).readU8(),
-        committing:state.fields.bjjs == null || !!manager.add(state.fields.bjjs).readU8(),
+        busy:state.fields.bjkf == null || !!manager.add(state.fields.bjkf).readU8(),
+        committing:state.fields.bjkg == null || !!manager.add(state.fields.bjkg).readU8(),
         resultItemId:receipt.add(fields.resultItem).readS32(),
         source:il2cppString(receipt.add(fields.source).readPointer()),
         timestamp:il2cppString(receipt.add(fields.timeStamp).readPointer())};
@@ -3714,7 +3744,7 @@ function processFailedExchangeRecovery(item) {
     g_failedExchangeRecoveryQueued = false;
     var state = nativeExchangeState();
     if (!g_failedExchangeRejections.some(function (row) { return failedExchangeRejectionMatches(state, row); })) return;
-    var busyMethod = resolveCubeBridgeMethod({className:'Cube',methodName:'jiq',argCount:0,rva:0x95d1c0});
+    var busyMethod = resolveCubeBridgeMethod({className:'Cube',methodName:'jix',argCount:0,rva:0x962470});
     var cubeBusy = !!new NativeFunction(busyMethod.ptr,'uint8',['pointer'])(busyMethod.mi);
     if (state.busy || state.committing || Object.keys(g_nativeInventoryExchangeRequests).length ||
             nativeBoxOpenBusy() || cubeBusy) {
@@ -3723,7 +3753,7 @@ function processFailedExchangeRecovery(item) {
         g_queue.push(item);
         return;
     }
-    var clear = resolveCubeBridgeMethod({namespace:'',className:'zc',methodName:'bjc',argCount:0,rva:0xab8c30});
+    var clear = resolveCubeBridgeMethod({namespace:'',className:'zc',methodName:'ltx',argCount:0,rva:0xad8c60});
     new NativeFunction(clear.ptr,'void',['pointer','pointer'])(state.manager,clear.mi);
     if (nativeExchangeState()) throw new Error('失败交换收据清理后仍存在');
     if (g_pendingSynthesisSignature && g_pendingSynthesisAt > 0 &&
@@ -3744,7 +3774,7 @@ function nativeExchangePending() {
     try {
         var owner = classInfo('', 'zw');
         var state = classInfo('', 'zc');
-        if (state.fields.bjjn == null) return false;
+        if (state.fields.bjkb == null) return false;
         if (!g_exchangePendingField) {
             var names = Object.keys(owner.fieldTypes);
             for (var i = 0; i < names.length; i++) {
@@ -3761,7 +3791,7 @@ function nativeExchangePending() {
         il2cpp.fieldStaticGetValue(g_exchangePendingField, storage);
         var manager = storage.readPointer();
         return !isBadPtr(manager) && il2cpp.objectGetClass(manager).equals(state.klass) &&
-            !isBadPtr(manager.add(state.fields.bjjn).readPointer());
+            !isBadPtr(manager.add(state.fields.bjkb).readPointer());
     } catch (e) { return false; }
 }
 
@@ -3777,9 +3807,9 @@ function nativeBoxOpenBusy() {
             var instance = g_boxNativeInstances[i];
             if (isBadPtr(instance) || !il2cpp.objectGetClass(instance).equals(info.klass)) continue;
             // Fields behind StageBox.mob/moc: single open, bulk open, coroutine.
-            if ((fields.bkmn != null && instance.add(fields.bkmn).readU8()) ||
-                    (fields.bkmp != null && instance.add(fields.bkmp).readU8()) ||
-                    (fields.bkmi != null && !isBadPtr(instance.add(fields.bkmi).readPointer()))) return true;
+            if ((fields.bknd != null && instance.add(fields.bknd).readU8()) ||
+                    (fields.bknf != null && instance.add(fields.bknf).readU8()) ||
+                    (fields.bkmy != null && !isBadPtr(instance.add(fields.bkmy).readPointer()))) return true;
         } catch (e) {}
     }
     return false;
@@ -3931,8 +3961,8 @@ function processBoxLogHistoryAppend(manager, size, readAt) {
 function boxLogHistorySnapshot(manager) {
     if (isBadPtr(manager)) return null;
     var managerFields = classInfo('TaskbarHero.Log', 'LogManager').fields;
-    if (managerFields.bjta == null) return null;
-    var list = manager.add(managerFields.bjta).readPointer();
+    if (managerFields.bjto == null) return null;
+    var list = manager.add(managerFields.bjto).readPointer();
     if (isBadPtr(list)) return null;
     var array = list.add(0x10).readPointer();
     var size = list.add(0x18).readS32();
@@ -4077,12 +4107,12 @@ function gameDropPreviewQueueFieldsForClass(klass) {
 }
 
 function gameDropPreviewFutureQueueFields(fields, managerName, assemblySize) {
-    // xm.kqt returns bjis (+0x10). Game chest creation calls krl, which
-    // transfers the exact BoxData from bjis to bjit (+0x18) before GetBoxLog.
-    // bjit/bjiu are later lifecycle states, even when plain isGet is false.
-    if (managerName !== 'yx' || assemblySize !== GAME_ASSEMBLY_130_SIZE) return [];
+    // xm.kqt returns bjjg (+0x10). Game chest creation calls krl, which
+    // transfers the exact BoxData from bjjg to bjjh (+0x18) before GetBoxLog.
+    // bjjh/bjji are later lifecycle states, even when plain isGet is false.
+    if (managerName !== 'yx' || assemblySize !== GAME_ASSEMBLY_VERIFIED_SIZE) return [];
     return fields.filter(function (field) {
-        return field.name === 'bjis' && field.offset === 0x10;
+        return field.name === 'bjjg' && field.offset === 0x10;
     });
 }
 
@@ -4114,8 +4144,8 @@ function installGameDropPreviewSpawnHooks() {
     if (isBadPtr(manager) || !gameDropPreviewFutureQueueFields(
             g_gameDropPreviewManagerFields,
             cstr(il2cpp.classGetName(g_gameDropPreviewManagerClass)), GA.size).length) return false;
-    var profiles = [{name: 'lry', rva: 0xab1590},
-        {name: 'kwk', rva: 0xaac270}, {name: 'lll', rva: 0xaac550}];
+    var profiles = [{name: 'lsn', rva: 0xab1590},
+        {name: 'kwz', rva: 0xaac270}, {name: 'lma', rva: 0xaac550}];
     profiles.forEach(function (profile) {
         var mi = il2cpp.classGetMethod(g_gameDropPreviewManagerClass,
             Memory.allocUtf8String(profile.name), 4);
@@ -4164,7 +4194,7 @@ function installGameDropPreviewSpawnHooks() {
     return g_gameDropPreviewSpawnHooks.length > 0;
 }
 
-// The current live 1.3.0 build uses yx for its BoxData queues and zw.bjld
+// The current live 1.3.0 build uses yx for its BoxData queues and zw.bjlr
 // for the singleton. Validate the managed field types before using this fast
 // path; if a later update renames or reshapes them, reflection fallback works.
 function tryResolveGameDropPreviewKnownQueueClass() {
@@ -4202,7 +4232,7 @@ function tryResolveGameDropPreviewKnownQueueClass() {
         var typeName = cstr(il2cpp.typeGetName(il2cpp.fieldGetType(field)));
         if (typeName !== managerTypeName && typeName !== managerName) continue;
         matchingFields.push(field);
-        if (cstr(il2cpp.fieldGetName(field)) === 'bjld') preferredField = field;
+        if (cstr(il2cpp.fieldGetName(field)) === 'bjlr') preferredField = field;
     }
     if (preferredField) matchingFields.unshift(preferredField);
     for (var fieldIndex = 0; fieldIndex < matchingFields.length; fieldIndex++) {
@@ -4425,9 +4455,9 @@ function resolveGameDropPreviewContentTypeBridge() {
         return g_gameDropPreviewContentTypeBridge || null;
     }
     g_gameDropPreviewContentTypeBridge = false;
-    // lrv is the game's own item-ID -> EContentType lookup. Pin this profile
+    // lsk is the game's own item-ID -> EContentType lookup. Pin this profile
     // to the build whose method, signature, and return values were inspected.
-    if (GA.size !== GAME_ASSEMBLY_130_SIZE) return null;
+    if (GA.size !== GAME_ASSEMBLY_VERIFIED_SIZE) return null;
     var image = imageByName('Assembly-CSharp.dll');
     if (isBadPtr(image)) return null;
     var managerClass = g_gameDropPreviewManagerClass;
@@ -4439,11 +4469,11 @@ function resolveGameDropPreviewContentTypeBridge() {
     if (isBadPtr(managerClass) || cstr(il2cpp.classGetName(managerClass)) !== 'yx') return null;
     try {
         var methodInfo = il2cpp.classGetMethod(
-            managerClass, Memory.allocUtf8String('lrv'), 1
+            managerClass, Memory.allocUtf8String('lsk'), 1
         );
         if (isBadPtr(methodInfo) ||
                 !il2cpp.methodGetClass(methodInfo).equals(managerClass) ||
-                cstr(il2cpp.methodGetName(methodInfo)) !== 'lrv' ||
+                cstr(il2cpp.methodGetName(methodInfo)) !== 'lsk' ||
                 il2cpp.methodGetParamCount(methodInfo) !== 1 ||
                 cstr(il2cpp.typeGetName(il2cpp.methodGetParam(methodInfo, 0))) !== 'System.Int32' ||
                 cstr(il2cpp.typeGetName(il2cpp.methodGetReturnType(methodInfo))) !==
@@ -4715,16 +4745,16 @@ function captureBoxOpenGameLog(logData, source) {
         var now = Date.now();
         var baseFields = classInfo('TaskbarHero.Log', 'LogData').fields;
         var boxFields = classInfo('TaskbarHero.Log', 'BoxOpenLog').fields;
-        if (baseFields.bjst == null || boxFields.bjrd == null || boxFields.bjre == null) return;
-        var eventKey = il2cppString(logData.add(baseFields.bjst).readPointer());
+        if (baseFields.bjth == null || boxFields.bjrr == null || boxFields.bjrs == null) return;
+        var eventKey = il2cppString(logData.add(baseFields.bjth).readPointer());
         if (eventKey !== 'LogMessage_GetItemWithBoxOpen') return;
-        var itemName = il2cppString(logData.add(boxFields.bjrd).readPointer());
+        var itemName = il2cppString(logData.add(boxFields.bjrr).readPointer());
         var itemMatch = /^ItemName_(\d+)$/.exec(itemName);
         if (!itemMatch) return;
         if (!rememberBoxLogObject(pointerKey, now)) return;
         var itemId = parseInt(itemMatch[1], 10);
         if (!(itemId > 0)) return;
-        var gradeValue = logData.add(boxFields.bjre).readS32();
+        var gradeValue = logData.add(boxFields.bjrs).readS32();
         var grade = gradeZh(gradeValue);
         if (boxLogDestination(now) === 'requested-open') {
             var existing = null;
@@ -5179,7 +5209,7 @@ function getLocalItemInfoCache() {
 }
 
 function readCurrentRuntimeItemCache(cache, stats) {
-    // Game 1.2.8 stores live items in wh.vc.biot rather than on
+    // Game 1.2.8 stores live items in wh.vc.biph rather than on
     // LocalInventoryManager. Discover the field by its managed type.
     var k = findClassByEnumeratedName('', 'vu');
     if (!k || k.isNull()) return false;
@@ -5565,13 +5595,13 @@ function currentStageCachePointer() {
     var owner = findClassByEnumeratedName('', 'xi');
     if (isBadPtr(owner)) throw new Error('当前关卡管理器类型未找到');
     var fields = runtimeClassFields(owner);
-    if (fields.fields.bizk !== 0xa8 || !fields.fieldInfos.bizk ||
-            cstr(il2cpp.typeGetName(il2cpp.fieldGetType(fields.fieldInfos.bizk))) !== 'xo.StageCache') {
+    if (fields.fields.bizp !== 0xa8 || !fields.fieldInfos.bizp ||
+            cstr(il2cpp.typeGetName(il2cpp.fieldGetType(fields.fieldInfos.bizp))) !== 'xo.StageCache') {
         throw new Error('当前关卡缓存静态字段版本校验失败');
     }
     var storage = Memory.alloc(PTR);
     storage.writePointer(ptr(0));
-    il2cpp.fieldStaticGetValue(fields.fieldInfos.bizk, storage);
+    il2cpp.fieldStaticGetValue(fields.fieldInfos.bizp, storage);
     var cache = storage.readPointer();
     if (isBadPtr(cache)) throw new Error('当前关卡缓存尚未就绪');
     var cacheClass = il2cpp.objectGetClass(cache);
@@ -5591,12 +5621,12 @@ function stageCacheByKeyFromLoadedList(stageKey) {
         if (isBadPtr(owner)) throw new Error('关卡缓存列表所属类型未找到');
         phase = 'xi-fields';
         var fields = runtimeClassFields(owner).fields;
-        if (fields.biyy !== 0x38) throw new Error('关卡缓存列表字段版本校验失败');
+        if (fields.bizd !== 0x38) throw new Error('关卡缓存列表字段版本校验失败');
         phase = 'static-data';
         var staticData = il2cpp.classGetStaticFieldData(owner);
         if (isBadPtr(staticData)) return ptr(0);
         phase = 'list-pointer';
-        var list = staticData.add(fields.biyy).readPointer();
+        var list = staticData.add(fields.bizd).readPointer();
         if (isBadPtr(list)) return ptr(0);
         phase = 'list-scan';
         var caches = readListObjects(list, 20000);
@@ -5927,9 +5957,9 @@ function resolveCurrentWaveCacheBridge(cacheClass) {
         throw new Error('当前关卡缓存同步方法版本校验失败');
     }
     var expectedMethods = [
-        { info: refreshInfo, rva: GAMEPLAY_CURRENT_WAVE_REFRESH_RVA, name: 'kzh', result: 'System.Void' },
-        { info: waveGetterInfo, rva: GAMEPLAY_CURRENT_WAVE_TOTAL_GETTER_RVA, name: 'kze', result: 'System.Int32' },
-        { info: monstersGetterInfo, rva: GAMEPLAY_CURRENT_WAVE_MONSTERS_GETTER_RVA, name: 'kzf', result: 'System.Int32' }
+        { info: refreshInfo, rva: GAMEPLAY_CURRENT_WAVE_REFRESH_RVA, name: 'kzw', result: 'System.Void' },
+        { info: waveGetterInfo, rva: GAMEPLAY_CURRENT_WAVE_TOTAL_GETTER_RVA, name: 'kzt', result: 'System.Int32' },
+        { info: monstersGetterInfo, rva: GAMEPLAY_CURRENT_WAVE_MONSTERS_GETTER_RVA, name: 'kzu', result: 'System.Int32' }
     ];
     for (var i = 0; i < expectedMethods.length; i++) {
         var expected = expectedMethods[i];
@@ -5955,7 +5985,7 @@ function currentStageWaveData() {
         var currentCache = currentStageCachePointer();
         var cacheClass = il2cpp.objectGetClass(currentCache);
         var cacheFields = runtimeClassFields(cacheClass);
-        if (cacheFields.fields.bizr !== 0x10) throw new Error('当前关卡数据字段版本校验失败');
+        if (cacheFields.fields.bizw !== 0x10) throw new Error('当前关卡数据字段版本校验失败');
         var waveCacheBridge = resolveCurrentWaveCacheBridge(cacheClass);
         var currentInfo = currentCache.add(0x10).readPointer();
         if (isBadPtr(currentInfo) || managedType(currentInfo) !== 'TaskbarHero.Data.StageInfoData') {
@@ -6188,7 +6218,7 @@ function gameplayReadOnlyDiagnostics() {
     if (!getCurrentProcess || !emptyWorkingSet) throw new Error('内存清理系统接口版本校验失败');
     var result = {
         executed: false,
-        gameVersion: currentBuild ? '1.3.0' : 'legacy',
+        gameVersion: currentBuild ? '2026-10-27/build26211490' : 'legacy',
         waveLayoutValid: waveLayoutValid,
         currentStage: currentStage,
         memoryCleanAvailable: true
@@ -6529,10 +6559,10 @@ function resolveAutoBossStageBridge() {
         var currentEnter = resolveCubeBridgeMethod(AUTO_BOSS_STAGE_BRIDGE_CURRENT.enterStage);
         var currentScene = resolveCubeBridgeMethod(AUTO_BOSS_STAGE_BRIDGE_CURRENT.returnScene);
         var currentPlague = resolveCubeBridgeMethod(AUTO_BOSS_STAGE_BRIDGE_CURRENT.validatePlague);
-        verifyManagedMethodShape('xi.kxc', currentValidate, 'TaskbarHero.EStageEnterResultType', ['xo.StageCache']);
-        verifyManagedMethodShape('xi.kxe', currentEnter, 'System.Void', ['xo.StageCache', 'System.Action<System.Boolean>']);
-        verifyManagedMethodShape('xi.kxd', currentPlague, 'TaskbarHero.EStageEnterResultType', ['xo.StageCache']);
-        verifyManagedMethodShape('xi.kxq', currentScene, 'Cysharp.Threading.Tasks.UniTaskVoid', ['System.Int32', 'System.Int32']);
+        verifyManagedMethodShape('xi.kxg', currentValidate, 'TaskbarHero.EStageEnterResultType', ['xo.StageCache']);
+        verifyManagedMethodShape('xi.kxi', currentEnter, 'System.Void', ['xo.StageCache', 'System.Action<System.Boolean>']);
+        verifyManagedMethodShape('xi.kxh', currentPlague, 'TaskbarHero.EStageEnterResultType', ['xo.StageCache']);
+        verifyManagedMethodShape('xi.kxu', currentScene, 'Cysharp.Threading.Tasks.UniTaskVoid', ['System.Int32', 'System.Int32']);
         currentValidate.fn = new NativeFunction(currentValidate.ptr, 'int', ['pointer', 'pointer']);
         currentEnter.fn = new NativeFunction(currentEnter.ptr, 'void', ['pointer', 'pointer', 'pointer']);
         currentScene.fn = new NativeFunction(currentScene.ptr, 'void', ['int', 'int', 'pointer']);
@@ -6549,10 +6579,10 @@ function resolveAutoBossStageBridge() {
         installAutoBossReturnHooks(g_autoBossStageBridgeResolved);
         return g_autoBossStageBridgeResolved;
     }
-    var cacheByKey = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.cacheByKeyRva], 'uq', 'idp', 1);
-    var validateEnter = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.validateEnterRva], 'uq', 'jgu', 1);
-    var enterStage = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.enterStageRva], 'uq', 'jgv', 2);
-    var enterScene = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.enterSceneRva], 'uq', 'jtq', 1);
+    var cacheByKey = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.cacheByKeyRva], 'uq', 'ids', 1);
+    var validateEnter = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.validateEnterRva], 'uq', 'jgx', 1);
+    var enterStage = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.enterStageRva], 'uq', 'jgy', 2);
+    var enterScene = resolveMethodInfoFromRvas([AUTO_BOSS_STAGE_BRIDGE.enterSceneRva], 'uq', 'jtt', 1);
     if (!cacheByKey || !cacheByKey.ptr || cacheByKey.ptr.isNull()) {
         throw new Error('找不到关卡缓存读取入口');
     }
@@ -6985,17 +7015,17 @@ function currentAutoBossStage() {
 function activeStageManagerStageInfo() {
     if (synthesisBridgeProfile() !== SYNTHESIS_BRIDGE_CURRENT) return null;
     var info = classInfo('TaskbarHero', 'StageManager');
-    if (isBadPtr(info.klass) || info.fields.bgvz !== 0x20 ||
-            info.fieldTypes.bgvz !== 'xo.StageCache') return null;
+    if (isBadPtr(info.klass) || info.fields.bgwe !== 0x20 ||
+            info.fieldTypes.bgwe !== 'xo.StageCache') return null;
     var managers = findObjectsOfType(info.klass);
     for (var i = 0; i < managers.length; i++) {
         var manager = managers[i];
         if (isBadPtr(manager)) continue;
-        var cache = manager.add(info.fields.bgvz).readPointer();
+        var cache = manager.add(info.fields.bgwe).readPointer();
         if (isBadPtr(cache)) continue;
         var stage = readAutoBossStageInfo(cache);
         if (stage) {
-            stage.mapSource = 'StageManager.bgvz';
+            stage.mapSource = 'StageManager.bgwe';
             return stage;
         }
     }
@@ -7023,7 +7053,7 @@ function savedPreviousNormalStageInfo() {
     return stage;
 }
 
-// xi.bizk follows the portal's selected StageCache. While the portal is open,
+// xi.bizp follows the portal's selected StageCache. While the portal is open,
 // that selection can differ from the stage the player is actually standing in.
 // Prefer the live StageManager cache; if it is absent under the portal, use the
 // game's saved previous normal stage as the entry origin instead of treating
@@ -7038,7 +7068,7 @@ function currentAutoPlagueStage() {
     } catch (liveError) {
         g_autoPlagueCurrentStageReadError = 'StageManager: ' + chineseError(liveError);
     }
-    // xi.bizk and CommonSaveData.currentStageKey can hold the last portal
+    // xi.bizp and CommonSaveData.currentStageKey can hold the last portal
     // selection while no playable StageManager cache exists. Treat the saved
     // previous normal stage as the origin until a live scene cache confirms a
     // real map entry; this also works after a stale portal has been closed.
@@ -7054,11 +7084,11 @@ function currentAutoPlagueStage() {
     try {
         var fallback = currentAutoBossStage();
         if (fallback) {
-            fallback.mapSource = 'xi.bizk-fallback';
+            fallback.mapSource = 'xi.bizp-fallback';
             return fallback;
         }
     } catch (fallbackError) {
-        g_autoPlagueCurrentStageReadError = 'xi.bizk: ' + chineseError(fallbackError);
+        g_autoPlagueCurrentStageReadError = 'xi.bizp: ' + chineseError(fallbackError);
     }
     return null;
 }
@@ -7087,10 +7117,10 @@ function plagueStageInfoByDifficultyFloor(difficulty, stageNo) {
     var owner = findClassByEnumeratedName('', 'xi');
     if (isBadPtr(owner)) throw new Error('瘟疫关卡缓存列表所属类型未找到');
     var fields = runtimeClassFields(owner).fields;
-    if (fields.biyy !== 0x38) throw new Error('瘟疫关卡缓存列表字段版本校验失败');
+    if (fields.bizd !== 0x38) throw new Error('瘟疫关卡缓存列表字段版本校验失败');
     var staticData = il2cpp.classGetStaticFieldData(owner);
     if (isBadPtr(staticData)) return null;
-    var list = staticData.add(fields.biyy).readPointer();
+    var list = staticData.add(fields.bizd).readPointer();
     if (isBadPtr(list)) return null;
     var caches = readListObjects(list, 20000);
     var matches = [];
@@ -7120,19 +7150,19 @@ function plagueStageInfoFromPortalSelection(difficulty, stageNo) {
     var plagueUi = portal.add(plagueUiOffset).readPointer();
     if (isBadPtr(plagueUi)) return null;
     var plagueInfo = classInfo('TaskbarHero.UI', 'UI_Plaguelands');
-    var selectedNodeOffset = plagueInfo.fields.bkru;
-    if (selectedNodeOffset == null || plagueInfo.fieldTypes.bkru !== 'TaskbarHero.StageNode')
+    var selectedNodeOffset = plagueInfo.fields.bksa;
+    if (selectedNodeOffset == null || plagueInfo.fieldTypes.bksa !== 'TaskbarHero.StageNode')
         return null;
     var selectedNode = plagueUi.add(selectedNodeOffset).readPointer();
     if (isBadPtr(selectedNode)) return null;
     var nodeInfo = classInfo('TaskbarHero', 'StageNode');
-    var cacheOffset = nodeInfo.fields.bgol;
-    if (cacheOffset == null || nodeInfo.fieldTypes.bgol !== 'xo.StageCache') return null;
+    var cacheOffset = nodeInfo.fields.bgoq;
+    if (cacheOffset == null || nodeInfo.fieldTypes.bgoq !== 'xo.StageCache') return null;
     var cache = selectedNode.add(cacheOffset).readPointer();
     var stage = readAutoBossStageInfo(cache);
     if (!stage || stage.stageType !== 2 || stage.act !== 23 ||
             stage.difficulty !== Number(difficulty) || stage.stageNo !== Number(stageNo)) return null;
-    stage.mapSource = 'UI_Portal.plaguelandsUI.bkru';
+    stage.mapSource = 'UI_Portal.plaguelandsUI.bksa';
     return {bridge:resolveAutoBossStageBridge(), cache:cache, stage:stage};
 }
 
@@ -7659,7 +7689,7 @@ function processPlagueUiRoute(item) {
     if(item.phase==='prepare') {
         var currentDifficulty=view.portal.add(portalInfo.fields.m_currentStageDifficulty).readS32();
         if(currentDifficulty!==context.difficulty) {
-            var choices=readIntListOrArray(view.portal.add(portalInfo.fields.bkte).readPointer(),16);
+            var choices=readIntListOrArray(view.portal.add(portalInfo.fields.bktk).readPointer(),16);
             var index=choices.indexOf(context.difficulty);
             if(index<0) throw new Error('目标难度不在游戏已解锁列表中');
             plagueUiInvoke(bridge.dropdownValue,plagueUiObjectField(view.portal,'stagetDiff_dropDown',true),[index]);
@@ -7692,8 +7722,8 @@ function processPlagueUiRoute(item) {
             plagueUiClick(plagueUiObjectField(view.plague,level<context.targetStageNo?'add':'sub',true),'瘟疫强度箭头');
             queuePlagueUiStep(context,'level',350);return;
         }
-        var node=plagueUiObjectField(view.plague,'bkru',true);
-        var stage=readAutoBossStageInfo(plagueUiObjectField(node,'bgol',true));
+        var node=plagueUiObjectField(view.plague,'bksa',true);
+        var stage=readAutoBossStageInfo(plagueUiObjectField(node,'bgoq',true));
         if(!stage || stage.stageKey!==context.targetStageKey) throw new Error('游戏瘟疫节点与目标地图不一致');
         queuePlagueUiStep(context,'enter',300);return;
     }
@@ -7701,8 +7731,8 @@ function processPlagueUiRoute(item) {
         var actual=currentAutoPlagueStage();
         if(actual && currentStageIsBossOrPumpkin(actual)) throw new Error('当前进入了 Boss 或南瓜灯峡谷，已保护当前挑战');
         if(fridaCurrentCombatState()===true) {queuePlagueUiStep(context,'enter',500);return;}
-        var node=plagueUiObjectField(view.plague,'bkru',true);
-        var stage=readAutoBossStageInfo(plagueUiObjectField(node,'bgol',true));
+        var node=plagueUiObjectField(view.plague,'bksa',true);
+        var stage=readAutoBossStageInfo(plagueUiObjectField(node,'bgoq',true));
         if(!stage || stage.stageKey!==context.targetStageKey) throw new Error('提交前瘟疫节点已变化');
         var button=plagueUiObjectField(node,'button_Enter',true);
         if(!plagueUiInvoke(bridge.interactable,button)) throw new Error('游戏目标地图当前不可点击，请检查污染度、宝箱空间和入场冷却');
@@ -8142,7 +8172,7 @@ function resolveEventDungeonEntry() {
     requireCurrentGameBuild();
     // Call the game's public event-stage entry route. The private kvt method is
     // only its UniTask state-machine body and omits UI/server entry setup.
-    var row = resolveCubeBridgeMethod({className:'xi', methodName:'ldk', argCount:3, rva:0xa37c90});
+    var row = resolveCubeBridgeMethod({className:'xi', methodName:'kvw', argCount:3, rva:0xa4f080});
     var params = [0, 1, 2].map(function (index) {
         return cstr(il2cpp.typeGetName(il2cpp.methodGetParam(row.mi, index)));
     });
@@ -8219,7 +8249,7 @@ function processEventDungeonEntry(item) {
         origin:g_eventDungeonContext.origin, ticketItemKey:item.ticket.itemKey,
         ticketCountBefore:counts[item.ticket.itemKey], entryRva:0xa44180});
     var entry = resolveEventDungeonEntry();
-    // StageNode's three ticket handlers all pass the same managed ikb callback
+    // StageNode's three ticket handlers all pass the same managed ike callback
     // (RVA 0x8f8450) used by Boss entry. It initializes the scene on success;
     // omitting it submits the ticket transaction without completing entry.
     var callback = nativeAutoBossEntryCallback({enterStage:entry});
@@ -8428,10 +8458,10 @@ function rememberAutoBossReturnStage(target) {
         il2cpp.methodGetClass(stageBridge.cacheByKey.mi);
     if (isBadPtr(owner)) throw new Error('关卡管理器类型未找到');
     var fields = runtimeClassFields(owner).fields;
-    // Current xi stores the last normal stage key in bizj at 0xa4;
-    // biza is a stage-index dictionary at 0x48, not a stage-key field.
-    if (fields.bizj !== 0xa4) throw new Error('最后普通关卡字段版本校验失败');
-    var fallbackKey = il2cpp.classGetStaticFieldData(owner).add(fields.bizj).readS32();
+    // Current xi stores the last normal stage key in bizo at 0xa4;
+    // bizo is a stage-index dictionary at 0x48, not a stage-key field.
+    if (fields.bizo !== 0xa4) throw new Error('最后普通关卡字段版本校验失败');
+    var fallbackKey = il2cpp.classGetStaticFieldData(owner).add(fields.bizo).readS32();
     var fallbackCache = stageBridge.cacheByKey.fn(fallbackKey, stageBridge.cacheByKey.mi);
     var fallbackStage = readAutoBossStageInfo(fallbackCache);
     if (!fallbackStage || fallbackStage.stageType !== 0 || fallbackStage.stageKey !== fallbackKey) {
@@ -8486,7 +8516,7 @@ function installAutoBossReturnHooks(bridge) {
     });
     // Even choosing the same fallback stage manually cancels the pending return.
     var select = resolveCubeBridgeMethod({namespace: 'TaskbarHero', className: 'StageNode',
-        methodName: 'ikl', argCount: 0, rva: 0x8cf150});
+        methodName: 'iko', argCount: 0, rva: 0x8fe860});
     var manualListener = Interceptor.attach(select.ptr, {onEnter: function () {
         var eventEntryPending = typeof g_eventDungeonContext !== 'undefined' &&
             g_eventDungeonContext && g_eventDungeonContext.phase === 'entering' &&
@@ -8511,7 +8541,7 @@ function installAutoBossReturnHooks(bridge) {
 
 function prepareNativePlagueReturn(_origin) {
     // The game's PlaguelandsController signatures changed. Returning through
-    // xi.kxq now performs the native stage validation and navigation itself;
+    // xi.kxu now performs the native stage validation and navigation itself;
     // avoid calling stale controller methods before that authoritative route.
 }
 
@@ -8594,21 +8624,21 @@ function processAutoBossReturnQueueItem() {
 function nativeAutoBossEntryCallback(bridge) {
     if (bridge && bridge.enterStage &&
             (bridge.current === true || synthesisBridgeProfile() === SYNTHESIS_BRIDGE_CURRENT)) {
-        // Game 1.3.0 renamed the old generated `ikb` callback. The current
-        // StageNode.ikr is the verified static void(Boolean) entry callback.
+        // Game 1.3.0 renamed the old generated `ike` callback. The current
+        // StageNode.iku is the verified static void(Boolean) entry callback.
         var stageNodeClass = findClassByEnumeratedName('TaskbarHero', 'StageNode');
         if (isBadPtr(stageNodeClass)) throw new Error('找不到当前版 StageNode 回调类型');
-        var currentCallbackMethod = findMethodInfo('TaskbarHero', 'StageNode', 'ikr', 1);
+        var currentCallbackMethod = findMethodInfo('TaskbarHero', 'StageNode', 'iku', 1);
         if (isBadPtr(currentCallbackMethod) ||
-                cstr(il2cpp.methodGetName(currentCallbackMethod)) !== 'ikr' ||
+                cstr(il2cpp.methodGetName(currentCallbackMethod)) !== 'iku' ||
                 cstr(il2cpp.typeGetName(il2cpp.methodGetReturnType(currentCallbackMethod))) !== 'System.Void' ||
                 cstr(il2cpp.typeGetName(il2cpp.methodGetParam(currentCallbackMethod, 0))) !== 'System.Boolean') {
-            throw new Error('当前版 StageNode.ikr 回调签名校验失败');
+            throw new Error('当前版 StageNode.iku 回调签名校验失败');
         }
         var callbackFlagsStorage = Memory.alloc(4);
         callbackFlagsStorage.writeU32(0);
         if ((il2cpp.methodGetFlags(currentCallbackMethod, callbackFlagsStorage) & 0x10) === 0) {
-            throw new Error('当前版 StageNode.ikr 不是静态成功回调');
+            throw new Error('当前版 StageNode.iku 不是静态成功回调');
         }
         var currentDelegateType = il2cpp.methodGetParam(bridge.enterStage.mi, 1);
         if (cstr(il2cpp.typeGetName(currentDelegateType)) !== 'System.Action<System.Boolean>') {
@@ -8654,8 +8684,8 @@ function nativeAutoBossEntryCallback(bridge) {
     // Reproduce the game's managed Action<bool> construction, including GC
     // ownership, so jzd's successful stone transaction initializes the scene.
     var method = findMethodInfoByRva(0x8f8450);
-    if (isBadPtr(method) || cstr(il2cpp.methodGetName(method)) !== 'ikb')
-        method = findMethodInfoByManagedSignature('ikb', 'System.Void', ['System.Boolean']);
+    if (isBadPtr(method) || cstr(il2cpp.methodGetName(method)) !== 'ike')
+        method = findMethodInfoByManagedSignature('ike', 'System.Void', ['System.Boolean']);
     if (isBadPtr(method)) {
         throw new Error('Boss 原生成功回调版本校验失败');
     }
@@ -8681,7 +8711,14 @@ function nativeAutoBossEntryCallback(bridge) {
     var objectNew = api('il2cpp_object_new', 'pointer', ['pointer']);
     var callback = objectNew(classFromType(callbackType));
     if (isBadPtr(callback)) throw new Error('Boss 原生回调创建失败');
-    new NativeFunction(B.add(0x6f8420), 'void', ['pointer', 'pointer', 'pointer', 'pointer'])(callback, target, method, ptr(0));
+    var delegateClass = il2cpp.objectGetClass(callback);
+    var delegateCtor = il2cpp.classGetMethod(delegateClass, Memory.allocUtf8String('.ctor'), 2);
+    if (isBadPtr(delegateCtor) || cstr(il2cpp.typeGetName(il2cpp.methodGetReturnType(delegateCtor))) !== 'System.Void' ||
+            cstr(il2cpp.typeGetName(il2cpp.methodGetParam(delegateCtor, 0))) !== 'System.Object' ||
+            cstr(il2cpp.typeGetName(il2cpp.methodGetParam(delegateCtor, 1))) !== 'System.IntPtr') {
+        throw new Error('Boss 回调构造器签名校验失败');
+    }
+    new NativeFunction(methodPtr(delegateCtor), 'void', ['pointer', 'pointer', 'pointer', 'pointer'])(callback, target, method, delegateCtor);
     var storage = Memory.alloc(PTR);
     storage.writePointer(callback);
     api('il2cpp_field_static_set_value', 'void', ['pointer', 'pointer'])(info.fieldInfos['<>9__18_2'], storage);
@@ -8695,7 +8732,7 @@ function readAutoBossStageInfo(cachePtr) {
         var cacheClass = il2cpp.objectGetClass(cachePtr);
         var cacheInfo = runtimeClassFields(cacheClass);
         var stageInfoOffset = firstFieldOffset(cacheInfo.fields,
-            [synthesisBridgeProfile() === SYNTHESIS_BRIDGE_CURRENT ? 'bizr' : 'bfar']);
+            [synthesisBridgeProfile() === SYNTHESIS_BRIDGE_CURRENT ? 'bizw' : 'bfar']);
         if (stageInfoOffset !== 0x10) return null;
         var stageInfoPtr = cachePtr.add(stageInfoOffset).readPointer();
         if (isBadPtr(stageInfoPtr)) return null;
@@ -8752,7 +8789,7 @@ function autoBossReadOnlyDiagnostics() {
     }
     return {
         executed: false,
-        cacheByKeyRva: bridge.cacheByKey.derived ? 'derived-from-xi.biyy' :
+        cacheByKeyRva: bridge.cacheByKey.derived ? 'derived-from-xi.bizd' :
             '0x' + bridge.cacheByKey.ptr.sub(B).toString(16),
         validateEnterRva: '0x' + bridge.validateEnter.ptr.sub(B).toString(16),
         enterStageRva: '0x' + bridge.enterStage.ptr.sub(B).toString(16),
@@ -9693,7 +9730,7 @@ function tradeShipDownloadBlocked(bridge, uid) {
 var g_tradeShipWaitingInfoMethod = null;
 function tradeShipWaitingInfo(uid) {
     var info = classInfo('', 'vf');
-    var field = info.fieldInfos.bffw;
+    var field = info.fieldInfos.bfgb;
     if (!field || field.isNull()) throw new Error('交易船等待记录字段不存在');
     var storage = Memory.alloc(PTR);
     storage.writePointer(ptr(0));
@@ -9804,6 +9841,13 @@ function tradeShipDateTimeGreaterThan(bridge, left, right) {
     } catch (e) {
         return false;
     }
+}
+
+function tradeShipDateTimeUnixMs(rawValue) {
+    var raw = Number(rawValue || 0);
+    if (!isFinite(raw) || raw <= 0) return 0;
+    var ticks = raw % 4611686018427387904;
+    return ticks > 0 ? Math.floor((ticks - 621355968000000000) / 10000) : 0;
 }
 
 function tradeShipValidSlotCount(bridge) {
@@ -10069,15 +10113,24 @@ function tradeShipReadOnlyDiagnostics() {
         var currentSlots = [];
         for (var currentIndex = 0; currentIndex < currentView.validCount; currentIndex++) {
             var currentBinding = currentTradeSlot(currentBridge, currentView, currentIndex);
+            var savedUid = currentTradeSavedUid(currentBinding);
+            var waitingUid = currentTradeWaitingUid(currentBinding);
+            var cooldownEndData = currentTradeCooldownRaw(currentBinding);
+            var cooldownEndAtMs = currentTradeCooldownEndUnixMs(cooldownEndData);
             currentSlots.push({
                 index: currentIndex,
-                savedUid: currentTradeSavedUid(currentBinding),
-                waitingUid: currentTradeWaitingUid(currentBinding)
+                savedUid: savedUid,
+                waitingUid: waitingUid,
+                occupied: savedUid !== '0' || waitingUid !== '0',
+                cooldownKnown: true,
+                cooldownEndData: cooldownEndData,
+                cooldownEndAtMs: cooldownEndAtMs,
+                cooldownActive: cooldownEndAtMs > Date.now()
             });
         }
         return {
             executed: false,
-            gameVersion: '1.3.0',
+            gameVersion: '2026-10-27/build26211490',
             visible: currentView.visible,
             marketPriceItemCount: g_marketPriceItemCount,
             marketPriceUpdatedAt: g_marketPriceUpdatedAt,
@@ -10142,12 +10195,14 @@ function tradeShipReadOnlyDiagnostics() {
                     waitingUid: state.waitingUid,
                     savedUid: state.savedUid,
                     cacheOccupied: state.cacheOccupied,
+                    cooldownKnown: state.cooldownKnown,
                     slotCooldownEndData: state.slotCooldownEndData,
                     dictionaryCooldownKnown: state.dictionaryCooldownKnown,
                     dictionaryCooldownEndData: state.dictionaryCooldownEndData,
                     dictionaryCooldownNewer: state.dictionaryCooldownNewer,
                     cooldownSource: state.cooldownSource,
                     cooldownEndData: state.cooldownEndData,
+                    cooldownEndAtMs: tradeShipDateTimeUnixMs(state.cooldownEndData),
                     cooldownNeedsApply: state.cooldownNeedsApply,
                     cooldownActive: state.cooldownActive,
                     downloadBlocked: state.downloadBlocked,
@@ -10450,7 +10505,7 @@ function resolveCurrentTradeBridge() {
     });
     bridge.moveRequest.fn = new NativeFunction(bridge.moveRequest.ptr, 'void',
         ['pointer', 'pointer', 'pointer', 'pointer']);
-    verifyManagedMethodShape('sj.itg', bridge.validateMove,
+    verifyManagedMethodShape('sj.itj', bridge.validateMove,
         'TaskbarHero.ValidationResult', ['TaskbarHero.MoveRequest']);
     // Windows x64 returns this 16-byte value type through the first hidden
     // buffer argument (IsValid at +0, FailureReason reference at +8).
@@ -10459,9 +10514,9 @@ function resolveCurrentTradeBridge() {
     bridge.uploadSlot.fn = new NativeFunction(bridge.uploadSlot.ptr, 'void',
         ['pointer', 'pointer']);
     bridge.undoWaiting.fn = new NativeFunction(bridge.undoWaiting.ptr, 'void', ['pointer', 'pointer']);
-    verifyManagedMethodShape('TradingStashSlot.nxk', bridge.undoWaiting, 'System.Void', []);
+    verifyManagedMethodShape('TradingStashSlot.nxp', bridge.undoWaiting, 'System.Void', []);
     bridge.clearWaitingDisplay.fn = new NativeFunction(bridge.clearWaitingDisplay.ptr,'void',['pointer','pointer']);
-    verifyManagedMethodShape('TradingStashSlot.nwr',bridge.clearWaitingDisplay,'System.Void',[]);
+    verifyManagedMethodShape('TradingStashSlot.nww',bridge.clearWaitingDisplay,'System.Void',[]);
     ['buttonPress', 'unityEventInvoke'].forEach(function (key) {
         bridge[key].fn = new NativeFunction(bridge[key].ptr, 'void', ['pointer', 'pointer']);
     });
@@ -10486,7 +10541,7 @@ function resolveCurrentTradeBridge() {
             slotInfo.fieldTypes.m_undoWaitingListButton !== 'UnityEngine.UI.Button') {
         throw new Error('游戏交易船等待栏撤回按钮字段版本不匹配');
     }
-    verifyManagedMethodShape('TradingStashSlot.nxb', bridge.uploadSlot,
+    verifyManagedMethodShape('TradingStashSlot.nxg', bridge.uploadSlot,
         'System.Void', []);
     var buttonInfo = classInfo('UnityEngine.UI', 'Button', 'UnityEngine.UI.dll');
     if (buttonInfo.fields.m_OnClick == null ||
@@ -10579,6 +10634,12 @@ function currentTradeCooldownTicks(rawValue) {
     return raw % 4611686018427387904; // DateTime Kind flags occupy the top 2 bits.
 }
 
+function currentTradeCooldownEndUnixMs(rawValue) {
+    var ticks = currentTradeCooldownTicks(rawValue);
+    if (!(ticks > 0)) return 0;
+    return Math.floor((ticks - 621355968000000000) / 10000);
+}
+
 function currentTradeCooldownAdvanced(beforeRaw, afterRaw) {
     if (!afterRaw || String(afterRaw) === '0') return false;
     if (!beforeRaw || String(beforeRaw) === '0') return true;
@@ -10607,10 +10668,10 @@ function currentTradeWarningState(bridge, ui) {
         button, bridge.componentGameObject.mi);
     var buttonActiveSelf = !isBadPtr(buttonObject) && !!bridge.gameObjectActiveSelf.fn(
         buttonObject, bridge.gameObjectActiveSelf.mi);
-    var callbackOffset = info.fields.bktw;
+    var callbackOffset = info.fields.bkuc;
     var callbackPending = callbackOffset != null && !isBadPtr(
         ui.add(callbackOffset).readPointer());
-    // opw(Action) stores the one-shot confirmation delegate in bktw. This is
+    // oqb(Action) stores the one-shot confirmation delegate in bkuc. This is
     // authoritative even if the popup is nested below an inactive UI canvas.
     var active = panelSelf || panelInHierarchy || callbackPending;
     return { available: true, active: active, panelSelf: panelSelf,
@@ -10743,8 +10804,8 @@ function clearCurrentDeferredWaitingDisplay(bridge,binding,pending) {
     if (!pending.saleRestricted || !pending.saleUndoInvoked ||
             currentTradeSavedUid(binding)!=='0' || currentTradeWaitingUid(binding)!==String(pending.uid)) return false;
     var info=classInfo('','xy');
-    var field=info.fieldInfos.bjfp;
-    if (!field || info.fieldTypes.bjfp!=='System.Collections.Generic.List<xy.WaitingListInfo>') return false;
+    var field=info.fieldInfos.bjfu;
+    if (!field || info.fieldTypes.bjfu!=='System.Collections.Generic.List<xy.WaitingListInfo>') return false;
     var storage=Memory.alloc(PTR);
     il2cpp.fieldStaticGetValue(field,storage);
     var waiting=storage.readPointer();
@@ -11127,7 +11188,7 @@ function processCurrentTradeItem(item) {
     try {
         bridge.moveRequest.fn(manager, request, resolveMoveResultCallback(), bridge.moveRequest.mi);
     } catch (e) {
-        moveError = new Error('sj.itf 移入请求调用失败：' + chineseError(e));
+        moveError = new Error('sj.iti 移入请求调用失败：' + chineseError(e));
         moveError.message += '；来源=' + source.source + ' 第 ' + (source.index + 1) +
             ' 格，数量=' + Math.max(1, Number(source.quantity) || 1) +
             '，模式=DIRECT，目标交易船第 ' + (index + 1) + ' 格';
@@ -11149,7 +11210,7 @@ function processCurrentTradeConfirm(item) {
     if (!binding) throw new Error('交易船目标槽位已关闭或绑定无效');
     if (handleCurrentTradeSaleRestriction(bridge,view,binding,pending)) return;
     if (currentTradeWaitingUid(binding) !== String(pending.uid)) {
-        // nxb accepts the server upload synchronously and clears the waiting
+        // nxg accepts the server upload synchronously and clears the waiting
         // UID before the next 350 ms poll. The source disappearing while the
         // cooldown advances is the authoritative success signal for that
         // accepted upload; do not wait for an already-cleared waiting UID.
@@ -12471,7 +12532,7 @@ function currentSynthesisRecipeModel(bridge, tier) {
     if (!bridge.current || !bridge.selectSpecificRecipe) return ptr(0);
     var cubeClass = il2cpp.methodGetClass(bridge.selectRecipe.mi);
     var staticData = il2cpp.classGetStaticFieldData(cubeClass);
-    var dictionaryOffset = runtimeClassFields(cubeClass).fields.bijq;
+    var dictionaryOffset = runtimeClassFields(cubeClass).fields.bike;
     if (isBadPtr(staticData) || dictionaryOffset == null) {
         throw new Error('无法读取游戏合成配方目录');
     }
@@ -12489,11 +12550,11 @@ function currentSynthesisRecipeModel(bridge, tier) {
         var models = readListObjects(entry.add(0x10).readPointer(), 32);
         for (var j = 0; j < models.length; j++) {
             var model = models[j];
-            var modelOffset = runtimeClassFields(il2cpp.objectGetClass(model)).fields.bjbp;
+            var modelOffset = runtimeClassFields(il2cpp.objectGetClass(model)).fields.bjcd;
             if (modelOffset == null) continue;
             var subRecipe = model.add(modelOffset).readPointer();
             if (isBadPtr(subRecipe)) continue;
-            var tierOffset = runtimeClassFields(il2cpp.objectGetClass(subRecipe)).fields.blbi;
+            var tierOffset = runtimeClassFields(il2cpp.objectGetClass(subRecipe)).fields.blby;
             if (tierOffset != null && subRecipe.add(tierOffset).readS32() === tier) return model;
         }
     }
@@ -12506,7 +12567,7 @@ function selectSynthesisRecipeTier(bridge, tier) {
     var model = currentSynthesisRecipeModel(bridge, tier);
     bridge.selectSpecificRecipe.fn(model, bridge.selectSpecificRecipe.mi);
     var staticData = il2cpp.classGetStaticFieldData(il2cpp.methodGetClass(bridge.selectRecipe.mi));
-    var activeOffset = runtimeClassFields(il2cpp.methodGetClass(bridge.selectRecipe.mi)).fields.bijw;
+    var activeOffset = runtimeClassFields(il2cpp.methodGetClass(bridge.selectRecipe.mi)).fields.bikk;
     if (activeOffset == null || !sameNativePointer(staticData.add(activeOffset).readPointer(), model)) {
         throw new Error('游戏未切换到所需合成等级区间 ' + tier);
     }
@@ -13310,7 +13371,7 @@ function preflightClassMethodSummary(namespaceName, className) {
         }
         if (className === 'sj' && params.indexOf('TaskbarHero.MoveRequest') < 0) continue;
         if (className === 'sj' && params.indexOf('System.Action<TaskbarHero.MoveResult>') < 0 &&
-                name !== 'itb' && name !== 'itp') continue;
+                name !== 'ite' && name !== 'itw') continue;
         var fp = methodPtr(method);
         var rva = isBadPtr(fp) ? '?' : '0x' + fp.sub(B).toString(16);
         var implFlags = Memory.alloc(4);
@@ -13362,7 +13423,7 @@ function preflightClassMethodRows(namespaceName, className, filterKind) {
 }
 
 function preflightTradeMethodNameSummary() {
-    var wanted = { lcb: true, lca: true, lbw: true, itb: true, itp: true };
+    var wanted = { lcb: true, lca: true, lbw: true, ite: true, itw: true };
     var hits = [];
     var classCountApi = api('il2cpp_image_get_class_count', 'int', ['pointer']);
     var classApi = api('il2cpp_image_get_class', 'pointer', ['pointer', 'int']);
@@ -13633,6 +13694,17 @@ function startLoop(configJson) {
     g_corrosionFinishQueued = false;
     g_autoCorrosionEnabled = cfg.autoCorrosion === true;
     g_corrosionMaxGrade = Number.isInteger(cfg.corrosionMaxGrade) ? Math.max(0, Math.min(9, cfg.corrosionMaxGrade)) : 0;
+    g_corrosionCategoryRules = {};
+    var corrosionCategoryInput = cfg.corrosionCategoryRules && typeof cfg.corrosionCategoryRules === 'object' ? cfg.corrosionCategoryRules : {};
+    ['equipment', 'material', 'relic', 'accessory'].forEach(function (key) {
+        var rule = corrosionCategoryInput[key];
+        if (!rule || typeof rule !== 'object') return;
+        var maxGrade = Number(rule.maxGrade);
+        if (!Number.isInteger(maxGrade) || maxGrade < 0 || maxGrade > 9) return;
+        g_corrosionCategoryRules[key] = {enabled:rule.enabled === true,maxGrade:maxGrade};
+    });
+    g_corrosionProtectPriceCny = Number(cfg.corrosionProtectPriceCny || 0);
+    if (!Number.isFinite(g_corrosionProtectPriceCny) || g_corrosionProtectPriceCny < 0) g_corrosionProtectPriceCny = 0;
     g_corrosionIncludeStash = cfg.corrosionIncludeStash === true;
     g_corrosionProtectedCategories = normalizeProtectionTokens(cfg.corrosionProtectedCategories);
     g_corrosionProtectedGrades = normalizeProtectionTokens(cfg.corrosionProtectedGrades);
@@ -14214,8 +14286,8 @@ function installPassiveSynthesisTrace() {
                     emit('auto_box_exchange_request', request);
                 } catch (e) {}
             }
-        }, 0xabf940);
-        attach('TaskbarHero', 'InventoryFunction', 'ltu', 1, {
+        }, 0xac8af0);
+        attach('TaskbarHero', 'InventoryFunction', 'lud', 1, {
             onEnter: function (args) {
                 this.owner = String(args[0]);
                 this.request = boxExchangeRequests[this.owner];
@@ -14247,25 +14319,22 @@ function installPassiveSynthesisTrace() {
                     }]);
                 } catch (e) {}
             }
-        }, 0xac1f60);
+        }, 0xacb240);
         // FunctionBase also completes transport-error responses that may bypass
         // InventoryFunction.ktn. Do not leave a finished request marked active.
-        attach('TaskbarHero', 'FunctionBase', 'ltt', 1, {
+        attach('TaskbarHero', 'FunctionBase', 'lui', 1, {
             onEnter: function (args) { this.owner = String(args[0]); },
             onLeave: function () {
                 if (!g_nativeInventoryExchangeRequests[this.owner]) return;
                 delete g_nativeInventoryExchangeRequests[this.owner];
                 delete boxExchangeRequests[this.owner];
             }
-        }, 0xaa27f0);
+        }, 0xac56d0);
     }
 
-    (current ? [
-        { methodName: 'jmp', argCount: 1, rva: 0x96a8c0 },
-        { methodName: 'jmr', argCount: 0, rva: 0x96ab40 }
-    ] : [
-        { methodName: 'ipc', argCount: 1, rva: 0x8c1350 },
-        { methodName: 'ipe', argCount: 0, rva: 0x8c15d0 }
+    (current ? [SYNTHESIS_BRIDGE_CURRENT.executeBackend] : [
+        { methodName: 'ipf', argCount: 1, rva: 0x8c1350 },
+        { methodName: 'iph', argCount: 0, rva: 0x8c15d0 }
     ]).forEach(function (row) {
         attach('', 'Cube', row.methodName, row.argCount, {
             onEnter: function () {
@@ -14299,14 +14368,14 @@ function installPassiveSynthesisTrace() {
                 sinceCubeCallMs: g_lastSynthesisTraceAt ? Date.now() - g_lastSynthesisTraceAt : -1
             });
         }
-    }, current ? 0xabf050 : 0x96bb60);
+    }, current ? 0xac8200 : 0x96bb60);
 
     attach('TaskbarHero', 'InventoryExchangeRequest', 'ToJson', 0, {
         onLeave: function (retval) {
             if (Date.now() - g_lastExchangeTraceAt > 3000) return;
             emit('auto_synthesis_trace', { stage: 'exchange-json', json: il2cppString(retval) });
         }
-    }, current ? 0xabf110 : 0x96bce0);
+    }, current ? 0xac82c0 : 0x96bce0);
 
     attach('TaskbarHero', 'InventoryExchangeResult', 'Initialize', 1, {
         onEnter: function (args) {
@@ -14362,14 +14431,14 @@ function installPassiveSynthesisTrace() {
                 });
             }
         }
-    }, current ? 0xabf250 : 0x9b2730);
+    }, current ? 0xac8400 : 0x9b2730);
 
-    attach('TaskbarHero.Log', 'LogManager', 'mhl', 1, {
+    attach('TaskbarHero.Log', 'LogManager', 'mhu', 1, {
         onEnter: function (args) {
             setBoxLogHistoryManager(args[0]);
             captureBoxOpenGameLog(args[1], 'game-log-native');
         }
-    }, current ? 0xb11470 : undefined);
+    }, current ? 0xb43d10 : undefined);
 
     attach('TaskbarHero', 'InventoryProcessBoxResult', 'Initialize', 1, {
         onEnter: function (args) {
@@ -14392,7 +14461,7 @@ function installPassiveSynthesisTrace() {
             }
             scheduleBoxCompletionMonitor();
         }
-    }, current ? 0xac5460 : 0x9a1e20);
+    }, current ? 0xace770 : 0x9a1e20);
 
     g_passiveTraceInstalled = true;
     log('后台结果监听已启用：' + installed + ' 个低频入口。');
@@ -14462,7 +14531,7 @@ function verifyCurrentReadOnly() {
     return JSON.stringify({
         executed: false,
         gameAssembly: { path: GA.path, size: GA.size, base: String(B) },
-        gameVersion: '1.3.0',
+        gameVersion: '2026-10-27/build26211490',
         synthesis: {
             activeSlotCount: slots.activeCount,
             slotCountRva: methodRvaText(synthesis.slotCount),
@@ -14490,6 +14559,8 @@ function verifyCurrentReadOnly() {
 // Corrosion uses the game's CORROSION recipe and its server-confirmed currency result.
 var g_autoCorrosionEnabled = false;
 var g_corrosionMaxGrade = 0;
+var g_corrosionCategoryRules = {};
+var g_corrosionProtectPriceCny = 0;
 var g_corrosionIncludeStash = false;
 var g_corrosionProtectedCategories = {};
 var g_corrosionProtectedGrades = {};
@@ -14562,10 +14633,17 @@ function corrosionProtectedItemKey(itemKey, gradeValue) {
     if (g_corrosionProtectOfferingMaterials && prefix === '16') return true;
     if (g_corrosionProtectSoulstones && prefix === '19') return true;
     if (g_corrosionProtectJackTickets && [170101, 170102, 170103].indexOf(itemKey) >= 0) return true;
-    if (g_corrosionProtectRelics && /^7[1-9]$/.test(prefix) &&
-            (g_corrosionProtectedRelicGrades[String(gradeValue)] === true ||
-             g_corrosionProtectedRelicGrades[String(enumName(gradeValue) || '').toLowerCase()] === true)) return true;
     return false;
+}
+
+function corrosionCategoryForRow(row) {
+    var category = String(row && row.categoryKey || '').toLowerCase();
+    if (category === 'equipment' || category === 'material' || category === 'accessory') return category;
+    // Runtime synthesis classification deliberately excludes relics. Their
+    // stable 7x item-key family is used only for corrosion's explicit rule.
+    var itemKey = String(row && row.itemKey || '');
+    if (/^7[0-9]/.test(itemKey)) return 'relic';
+    return '';
 }
 
 function corrosionUidRejected(uid, includeRetryable) {
@@ -14588,13 +14666,23 @@ function rejectCorrosionUid(uid, reason, retryMs) {
 function corrosionCandidate(row, includeRetryableRejections) {
     if (!row || !row.runtimeInfo || !row.placed || row.equipped ||
             row.serverPending || row.deletedInServer || row.temporaryBlocked) return false;
-    if (['equipment', 'accessory', 'material'].indexOf(row.categoryKey) < 0) return false;
-    if (g_corrosionProtectedCategories[String(row.categoryKey || '').toLowerCase()] === true ||
+    var corrosionCategory = corrosionCategoryForRow(row);
+    var categoryRule = g_corrosionCategoryRules[corrosionCategory];
+    if (!corrosionCategory || !categoryRule || categoryRule.enabled !== true) return false;
+    if (g_corrosionProtectedCategories[corrosionCategory] === true ||
             g_corrosionProtectedGrades[String(row.gradeValue)] === true ||
             g_corrosionProtectedGrades[String(row.gradeKey || '').toLowerCase()] === true) return false;
     if (row.gradeValue == null) return false;
     var grade = Number(row.gradeValue);
-    if (!isFinite(grade) || Math.floor(grade) !== grade || grade < 0 || grade > g_corrosionMaxGrade) return false;
+    if (!isFinite(grade) || Math.floor(grade) !== grade || grade < 0 || grade > categoryRule.maxGrade) return false;
+    if (g_corrosionProtectPriceCny > 0) {
+        var cachedPrice = g_marketPriceItems[String(row.itemKey)] || null;
+        var cachedPriceValue = cachedPrice ? Number(cachedPrice.priceCny) : NaN;
+        var cachedPriceAt = cachedPrice ? Number(cachedPrice.updatedAt || g_marketPriceUpdatedAt) : 0;
+        if (!cachedPrice || cachedPrice.resolved !== true || !Number.isFinite(cachedPriceValue) ||
+                cachedPriceValue <= 0 || cachedPriceAt <= 0 || Date.now() / 1000 - cachedPriceAt > 3600) return false;
+        if (cachedPriceValue > g_corrosionProtectPriceCny) return false;
+    }
     if (corrosionProtectedItemKey(row.itemKey, row.gradeValue) ||
             g_synthesisIgnoreItemIds.indexOf(Number(row.itemKey)) >= 0 ||
             corrosionUidRejected(row.uid, includeRetryableRejections) ||
@@ -14620,29 +14708,29 @@ function resolveCorrosionBridge() {
     var bridge = {cube: resolveSynthesisBridge()};
     function method(ns, cls, name, rva, returnType, args) {
         var row = resolveCubeBridgeMethod({namespace: ns, className: cls, methodName: name, rva: rva,
-            argCount: name === 'jnj' ? 0 : args.length - 1 - (cls === 'Cube' ? 0 : 1)});
+            argCount: name === 'jnm' ? 0 : args.length - 1 - (cls === 'Cube' ? 0 : 1)});
         row.fn = new NativeFunction(row.ptr, returnType, args);
         return row;
     }
     // Current builds execute corrosion through the native recipe lifecycle.
     // The old direct entry has changed signature and is not used by this path.
     bridge.execute = bridge.cube.current ? null :
-        method('', 'Cube', 'jnn', 0x95ac10, 'void', ['pointer', 'pointer']);
-    bridge.busy = method('', 'Cube', 'jiu', 0x94afa0, 'bool', ['pointer']);
-    if (bridge.execute) verifyManagedMethodShape('Cube.jnn', bridge.execute, 'Cysharp.Threading.Tasks.UniTask', []);
-    verifyManagedMethodShape('Cube.jiu', bridge.busy, 'System.Boolean', []);
-    bridge.initialize = method('TaskbarHero', 'CorrosionFunctionResult', 'Initialize', 0xa8cbe0,
+        method('', 'Cube', 'jnq', 0x972220, 'void', ['pointer', 'pointer']);
+    bridge.busy = method('', 'Cube', 'jix', 0x962470, 'bool', ['pointer']);
+    if (bridge.execute) verifyManagedMethodShape('Cube.jnq', bridge.execute, 'Cysharp.Threading.Tasks.UniTask', []);
+    verifyManagedMethodShape('Cube.jix', bridge.busy, 'System.Boolean', []);
+    bridge.initialize = method('TaskbarHero', 'CorrosionFunctionResult', 'Initialize', 0xaaafd0,
         'void', ['pointer', 'pointer', 'pointer']);
-    bridge.success = method('TaskbarHero', 'CorrosionFunctionResult', 'get_IsSuccess', 0xa8d270,
+    bridge.success = method('TaskbarHero', 'CorrosionFunctionResult', 'get_IsSuccess', 0xaab660,
         'bool', ['pointer', 'pointer']);
-    bridge.error = method('TaskbarHero', 'CorrosionFunctionResult', 'get_Error', 0xa8c890,
+    bridge.error = method('TaskbarHero', 'CorrosionFunctionResult', 'get_Error', 0xaaac80,
         'pointer', ['pointer', 'pointer']);
-    bridge.pollution = method('TaskbarHero', 'CorrosionFunctionResult', 'get_PollutionValue', 0xa8d2a0,
+    bridge.pollution = method('TaskbarHero', 'CorrosionFunctionResult', 'get_PollutionValue', 0xaab690,
         'int64', ['pointer', 'pointer']);
     bridge.fields = classInfo('TaskbarHero', 'CorrosionFunctionResult').fields;
     bridge.countFields = classInfo('TaskbarHero', 'InventoryItemData').fields;
-    bridge.progress = method('', 'wh', 'khg', 0xa17870, 'int64', ['pointer', 'pointer']);
-    bridge.recipeType = method('', 'xp', 'led', 0xa59280, 'int', ['pointer', 'pointer']);
+    bridge.progress = method('', 'wh', 'khk', 0xa36230, 'int64', ['pointer', 'pointer']);
+    bridge.recipeType = method('', 'xp', 'lel', 0xa86a40, 'int', ['pointer', 'pointer']);
     // Resolve the recipe getter by its actual MethodInfo rather than assuming an offset.
     g_corrosionBridge = bridge;
     try {
@@ -14692,7 +14780,7 @@ function readCorrosionPollution(bridge) {
     var fieldInfo = runtimeClassFields(klass);
     var fields = fieldInfo.fields;
     var data = il2cpp.classGetStaticFieldData(klass);
-    var controllerField = fields.birm != null ? fields.birm : fields.bird;
+    var controllerField = fields.birr;
     if (isBadPtr(data) || controllerField == null) {
         var fieldSummary = Object.keys(fields).map(function (name) {
             var info = fieldInfo.fieldInfos[name];
@@ -14704,14 +14792,14 @@ function readCorrosionPollution(bridge) {
     }
     var controller = data.add(controllerField).readPointer();
     if (isBadPtr(controller)) throw new Error('污染值控制器尚未就绪（Plaguelands.' +
-        (fields.birm != null ? 'birm' : 'bird') + '为空）');
+        (fields.birr != null ? 'birr' : 'birr') + '为空）');
     var controllerFields = runtimeClassFields(il2cpp.objectGetClass(controller)).fields;
-    var progressField = controllerFields.birt != null ? controllerFields.birt : controllerFields.birk;
+    var progressField = controllerFields.biry;
     if (progressField == null) throw new Error('污染值进度字段未找到；PlaguelandsController字段=' +
         Object.keys(controllerFields).join(','));
     var progress = controller.add(progressField).readPointer();
     if (isBadPtr(progress)) throw new Error('污染值数据尚未就绪（PlaguelandsController.' +
-        (controllerFields.birt != null ? 'birt' : 'birk') + '为空）');
+        (controllerFields.biry != null ? 'biry' : 'biry') + '为空）');
     return Number(bridge.progress.fn(progress, bridge.progress.mi).toString());
 }
 
@@ -14776,16 +14864,16 @@ function corrosionConfirmedItems(selected, removed, counts) {
 function selectHeadlessCubeRecipe(bridge, recipeType) {
     var cubeClass = il2cpp.methodGetClass(bridge.cube.selectRecipe.mi);
     var info = runtimeClassFields(cubeClass);
-    if (info.fields.bikb !== 0x108 || info.fields.bikf !== 0x128 ||
-            !info.fieldInfos.bikb || !info.fieldInfos.bikf ||
-            cstr(il2cpp.typeGetName(il2cpp.fieldGetType(info.fieldInfos.bikb))) !==
+    if (info.fields.bikg !== 0x108 || info.fields.bikk !== 0x128 ||
+            !info.fieldInfos.bikg || !info.fieldInfos.bikk ||
+            cstr(il2cpp.typeGetName(il2cpp.fieldGetType(info.fieldInfos.bikg))) !==
                 'System.Collections.Generic.Dictionary<TaskbarHero.Data.ERecipeType,xp>' ||
-            cstr(il2cpp.typeGetName(il2cpp.fieldGetType(info.fieldInfos.bikf))) !== 'xp') {
+            cstr(il2cpp.typeGetName(il2cpp.fieldGetType(info.fieldInfos.bikk))) !== 'xp') {
         throw new Error('当前版后台腐蚀配方字段布局校验失败');
     }
     var dictionaryStorage = Memory.alloc(PTR);
     dictionaryStorage.writePointer(ptr(0));
-    il2cpp.fieldStaticGetValue(info.fieldInfos.bikb, dictionaryStorage);
+    il2cpp.fieldStaticGetValue(info.fieldInfos.bikg, dictionaryStorage);
     var dictionary = dictionaryStorage.readPointer();
     var recipeRow = intPointerDictionaryRows(dictionary, 64).filter(function (row) {
         return row.key === (recipeType | 0);
@@ -14802,18 +14890,18 @@ function selectHeadlessCubeRecipe(bridge, recipeType) {
     }
     var activeStorage = Memory.alloc(PTR);
     activeStorage.writePointer(ptr(0));
-    il2cpp.fieldStaticGetValue(info.fieldInfos.bikf, activeStorage);
+    il2cpp.fieldStaticGetValue(info.fieldInfos.bikk, activeStorage);
     var activeRecipe = activeStorage.readPointer();
     if (isBadPtr(activeRecipe) || !sameNativePointer(activeRecipe, recipeRow.value)) {
-        // Cube.jke depends on UI_Cube being initialized. With the game feature
+        // Cube.jki depends on UI_Cube being initialized. With the game feature
         // window closed, select the already-loaded recipe model directly in
         // Cube's static backend state; no Unity window or mouse action is used.
         var recipeStorage = Memory.alloc(PTR);
         recipeStorage.writePointer(recipeRow.value);
         api('il2cpp_field_static_set_value', 'void', ['pointer', 'pointer'])(
-            info.fieldInfos.bikf, recipeStorage);
+            info.fieldInfos.bikk, recipeStorage);
         activeStorage.writePointer(ptr(0));
-        il2cpp.fieldStaticGetValue(info.fieldInfos.bikf, activeStorage);
+        il2cpp.fieldStaticGetValue(info.fieldInfos.bikk, activeStorage);
         activeRecipe = activeStorage.readPointer();
     }
     if (isBadPtr(activeRecipe) || !sameNativePointer(activeRecipe, recipeRow.value)) {
@@ -15058,6 +15146,25 @@ function corrosionThresholdAllows(rows) {
 
 
 rpc.exports = {
+    checkmainthread: function () {
+        requireCurrentGameBuild();
+        if (!ensureUpdateHook()) return JSON.stringify({status:'FAILED',error:'游戏主线程入口不可用'});
+        return new Promise(function (resolve) {
+            var settled = false;
+            var item = {action:'compatibilityRead',at:Date.now(),resolve:function(value){
+                if (settled) return;
+                settled = true;
+                if (item.timeout) clearTimeout(item.timeout);
+                resolve(value);
+            }};
+            item.timeout = setTimeout(function(){
+                var index = g_queue.indexOf(item);
+                if (index >= 0) g_queue.splice(index,1);
+                item.resolve(JSON.stringify({status:'FAILED',error:'游戏主线程检查超时'}));
+            },8000);
+            g_queue.unshift(item);
+        });
+    },
     // Read on preview open, chest spawn and stage changes. Idle frames do not
     // rescan rewards; the controller coalesces closely spaced spawn events.
     getdropqueuesnapshot: function (skipSourceClassification) {
@@ -15084,9 +15191,9 @@ rpc.exports = {
         var owner = findClassByEnumeratedName('', 'xi');
         if (isBadPtr(owner)) throw new Error('关卡缓存列表所属类型未找到');
         var fields = runtimeClassFields(owner).fields;
-        if (fields.biyy !== 0x38) throw new Error('关卡缓存列表字段版本校验失败');
+        if (fields.bizd !== 0x38) throw new Error('关卡缓存列表字段版本校验失败');
         var staticData = il2cpp.classGetStaticFieldData(owner);
-        var list = isBadPtr(staticData) ? ptr(0) : staticData.add(fields.biyy).readPointer();
+        var list = isBadPtr(staticData) ? ptr(0) : staticData.add(fields.bizd).readPointer();
         var caches = isBadPtr(list) ? [] : readListObjects(list, 20000);
         var stages = [];
         caches.forEach(function (cache) {
@@ -15108,6 +15215,125 @@ rpc.exports = {
             return JSON.stringify({stage:null, stageName:'等待进入关卡', inCombat:false,
                 stageError:chineseError(e)});
         }
+    },
+    getaccountdashboard: function () {
+        var result = {
+            status: 'SUCCESS',
+            pid: Process.id,
+            observedAt: Date.now(),
+            mapName: '地图信息暂不可用',
+            stage: null,
+            tradeShip: null
+        };
+        try {
+            var stage = currentAutoBossStage();
+            if (stage) {
+                result.mapName = fridaStageName(stage) || '地图信息暂不可用';
+                result.stage = {
+                    stageType: Number(stage.stageType) || 0,
+                    act: Number(stage.act) || 0,
+                    stageNo: Number(stage.stageNo) || 0,
+                    difficulty: Number(stage.difficulty) || 0,
+                    stageKey: Number(stage.stageKey) || 0
+                };
+            }
+        } catch (mapError) {
+            result.mapError = chineseError(mapError);
+        }
+        try {
+            var diagnostics = tradeShipReadOnlyDiagnostics();
+            var sourceSlots = diagnostics.validSlots || diagnostics.slots || [];
+            var serverTime = diagnostics.serverTime || {};
+            var serverTicks = serverTime.known === true
+                ? currentTradeCooldownTicks(serverTime.raw) : 0;
+            result.tradeShip = {
+                slotCount: Number(diagnostics.validSlotCount) || sourceSlots.length || 0,
+                rawListCount: Number(diagnostics.rawListCount) || sourceSlots.length || 0,
+                slots: sourceSlots.map(function (slot, position) {
+                    var waitingUid = String(slot.waitingUid || '0');
+                    var cooldownKnown = slot.cooldownKnown === true ||
+                        (slot.cooldownKnown == null &&
+                            (slot.cooldownEndAtMs != null || slot.cooldownEndData != null));
+                    var cooldownEndAtMs = Number(slot.cooldownEndAtMs) || 0;
+                    if (!cooldownEndAtMs && slot.cooldownEndData) {
+                        cooldownEndAtMs = tradeShipDateTimeUnixMs(slot.cooldownEndData);
+                    }
+                    var endTicks = currentTradeCooldownTicks(slot.cooldownEndData ||
+                        slot.slotCooldownEndData || 0);
+                    var remainingMs = cooldownKnown && endTicks > 0
+                        ? (serverTicks > 0 ? Math.max(0, (endTicks - serverTicks) / 10000)
+                            : Math.max(0, cooldownEndAtMs - Date.now()))
+                        : null;
+                    var cooldownActive = slot.cooldownActive != null
+                        ? slot.cooldownActive === true
+                        : cooldownKnown && cooldownEndAtMs > Date.now();
+                    return {
+                        index: Number(slot.index != null ? slot.index :
+                            (slot.listIndex != null ? slot.listIndex : position)),
+                        occupied: slot.occupied === true || slot.cacheOccupied === true ||
+                            waitingUid !== '0',
+                        waiting: waitingUid !== '0',
+                        cooldownKnown: cooldownKnown,
+                        cooldownActive: cooldownKnown && cooldownActive,
+                        cooldownEndAtMs: cooldownEndAtMs,
+                        cooldownRemainingMs: remainingMs
+                    };
+                })
+            };
+        } catch (tradeShipError) {
+            result.tradeShip = {slotCount: 0, rawListCount: 0, slots: [], available: false};
+            result.tradeShipError = chineseError(tradeShipError);
+        }
+        return JSON.stringify(result);
+    },
+    getaccountdashboard: function () {
+        var result = {status:'SUCCESS', pid:Process.id, observedAt:Date.now(),
+            mapName:'地图信息暂不可用', stage:null, tradeShip:null};
+        try {
+            var stage = currentAutoBossStage();
+            if (stage) {
+                result.stage = {
+                    stageType:Number(stage.stageType)||0, act:Number(stage.act)||0,
+                    stageNo:Number(stage.stageNo)||0, difficulty:Number(stage.difficulty)||0,
+                    stageKey:Number(stage.stageKey)||0
+                };
+                result.mapName = fridaStageName(stage) || '地图信息暂不可用';
+            }
+        } catch (mapError) {
+            result.mapError = chineseError(mapError);
+        }
+        try {
+            var diagnostics = tradeShipReadOnlyDiagnostics();
+            var sourceSlots = diagnostics.validSlots || diagnostics.slots || [];
+            result.tradeShip = {
+                slotCount:Number(diagnostics.validSlotCount)||sourceSlots.length||0,
+                rawListCount:Number(diagnostics.rawListCount)||sourceSlots.length||0,
+                slots:sourceSlots.map(function (slot, position) {
+                    var waitingUid=String(slot.waitingUid||'0');
+                    var cooldownKnown=slot.cooldownKnown===true ||
+                        slot.cooldownEndAtMs!=null || slot.cooldownEndData!=null;
+                    var cooldownEndAtMs=Number(slot.cooldownEndAtMs)||0;
+                    if (!cooldownEndAtMs && slot.cooldownEndData) {
+                        cooldownEndAtMs=tradeShipDateTimeUnixMs(slot.cooldownEndData);
+                    }
+                    var cooldownActive=slot.cooldownActive===true ||
+                        (!cooldownKnown && cooldownEndAtMs>Date.now());
+                    var occupied=slot.occupied===true || slot.cacheOccupied===true ||
+                        waitingUid!=='0';
+                    return {
+                        index:Number(slot.index!=null?slot.index:
+                            (slot.listIndex!=null?slot.listIndex:position)),
+                        occupied:occupied, waiting:waitingUid!=='0',
+                        cooldownKnown:cooldownKnown, cooldownActive:cooldownActive,
+                        cooldownEndAtMs:cooldownEndAtMs
+                    };
+                })
+            };
+        } catch (tradeShipError) {
+            result.tradeShip={slotCount:0,rawListCount:0,slots:[],available:false};
+            result.tradeShipError=chineseError(tradeShipError);
+        }
+        return JSON.stringify(result);
     },
     autoplagueonce: function () {
         return requestManualAutoPlagueSwitch();
@@ -15217,12 +15443,12 @@ rpc.exports = {
                 activeSlotCount: slotState.activeCount,
                 slotBusy: slotState.busy,
                 abi: bridge.current ?
-                    'ixs(MethodInfo); iyu(ERecipeType,MethodInfo); iyj(EItemSynthesisType,MethodInfo); jcu(MethodInfo); ' +
+                    'ixs(MethodInfo); iyu(ERecipeType,MethodInfo); iyj(EItemSynthesisType,MethodInfo); jcx(MethodInfo); ' +
                     'jaw(ESlotType,index,MethodInfo); jjm(item,MethodInfo); jjx(item,MethodInfo); ' +
                     'jav(ESlotType,index,MethodInfo); jbh(sret,MethodInfo)' :
-                    'ilm(MethodInfo); imn(ERecipeType,MethodInfo); imc(EItemSynthesisType,MethodInfo); ips(MethodInfo); ' +
-                    'iop(ESlotType,index,MethodInfo); iwu(item,MethodInfo); ixg(item,MethodInfo); ' +
-                    'ioo(ESlotType,index,MethodInfo); ipb(sret,MethodInfo)'
+                    'ilp(MethodInfo); imq(ERecipeType,MethodInfo); imf(EItemSynthesisType,MethodInfo); ipv(MethodInfo); ' +
+                    'ios(ESlotType,index,MethodInfo); iwx(item,MethodInfo); ixj(item,MethodInfo); ' +
+                    'ior(ESlotType,index,MethodInfo); ipe(sret,MethodInfo)'
             },
             executed: false
         });
@@ -15291,9 +15517,9 @@ rpc.exports = {
                 slotBackingCount: slotState.backingCount,
                 activeSlotCount: slotState.activeCount,
                 slotBusy: slotState.busy,
-                abi: 'ilm(MethodInfo); imn(ERecipeType,MethodInfo); imc(EItemSynthesisType,MethodInfo); ips(MethodInfo); ' +
-                    'iop(ESlotType,index,MethodInfo); iwu(item,MethodInfo); ixg(item,MethodInfo); ' +
-                    'ioo(ESlotType,index,MethodInfo); ipb(sret,MethodInfo)'
+                abi: 'ilp(MethodInfo); imq(ERecipeType,MethodInfo); imf(EItemSynthesisType,MethodInfo); ipv(MethodInfo); ' +
+                    'ios(ESlotType,index,MethodInfo); iwx(item,MethodInfo); ixj(item,MethodInfo); ' +
+                    'ior(ESlotType,index,MethodInfo); ipe(sret,MethodInfo)'
             },
             stageBox: {
                 rightClickRva: '0x' + stageBox.ptr.sub(B).toString(16),
@@ -15307,7 +15533,7 @@ rpc.exports = {
                 removeFromInventoryRva: '0x' + depositBridge.removeFromInventory.ptr.sub(B).toString(16),
                 fullBackpackDepositRva: '0x' + fullDepositBridge.depositAll.ptr.sub(B).toString(16),
                 switchStashPageRva: '0x' + fullDepositBridge.switchPage.ptr.sub(B).toString(16),
-                fullBackpackAbi: 'hyk(物品移动管理器, 背包, 仓库, 方法信息); loq(仓库界面, 页码, 方法信息)',
+                fullBackpackAbi: 'hyn(物品移动管理器, 背包, 仓库, 方法信息); lpf(仓库界面, 页码, 方法信息)',
                 pageSize: STASH_PAGE_SIZE,
                 pageCount: STASH_PAGE_COUNT,
                 firstEmptyIndex: firstEmptyStashIndex,
@@ -15332,8 +15558,8 @@ rpc.exports = {
                 applyCooldownRva: '0x' + tradeShipBridge.applyCooldown.ptr.sub(B).toString(16),
                 pointerEnterRva: '0x' + tradeShipBridge.pointerEnter.ptr.sub(B).toString(16),
                 downloadListenerRva: '0x' + tradeShipBridge.downloadListener.ptr.sub(B).toString(16),
-                abi: 'ra.hyc(管理器, 来源类型, 来源索引, 回调, 交易船, 方法信息); ' +
-                    'TradingStashSlot.llc(槽位, 方法信息); UI_TradingStash.lzb(界面, 方法信息); ' +
+                abi: 'ra.hyf(管理器, 来源类型, 来源索引, 回调, 交易船, 方法信息); ' +
+                    'TradingStashSlot.llr(槽位, 方法信息); UI_TradingStash.lzq(界面, 方法信息); ' +
                     'TradingStashSlot.OnPointerEnter(槽位, 指针事件, 方法信息); Button.Press(按钮, 方法信息)',
                 marketPriceItemCount: g_marketPriceItemCount,
                 minPriceCny: g_tradeShipMinPriceCny,
@@ -15460,6 +15686,8 @@ rpc.exports = {
             passiveTraceHookCount: g_passiveTraceListeners.length,
             autoCorrosion: g_autoCorrosionEnabled,
             corrosionMaxGrade: g_corrosionMaxGrade,
+            corrosionCategoryRules: g_corrosionCategoryRules,
+            corrosionProtectPriceCny: g_corrosionProtectPriceCny,
             corrosionIncludeStash: g_corrosionIncludeStash,
             corrosionPollutionThreshold: g_corrosionPollutionThreshold,
             corrosionWarehouseThresholdPercent: g_corrosionWarehouseThresholdPercent,
@@ -15683,7 +15911,11 @@ rpc.exports = {
     }
 };
 
-setImmediate(installPassiveSynthesisTrace);
+// BEGIN_AGENT_BACKGROUND_LISTENERS
+setImmediate(function () {
+    try { requireCurrentGameBuild(); installPassiveSynthesisTrace(); }
+    catch (error) { emit('game_compatibility_error', {error:chineseError(error)}); log('游戏接口检查失败：' + chineseError(error)); }
+});
 log('脚本已加载（版本 ' + SCRIPT_BUILD_TAG + '）：运行时扫描背包、7 个物品仓库和材料仓库，排除上锁/已装备/待同步物品。');
 setTimeout(function () {
     try {

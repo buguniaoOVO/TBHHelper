@@ -1,16 +1,30 @@
 # TBH助手
 
-TaskBarHero Windows 托管助手，维护署名 **by 阿丸AWan**。当前发布版 **v1.3.82** 使用 Frida 连接正在运行的游戏进程，支持本机与 Sandboxie 多开实例，无需向游戏目录部署插件。
+TaskBarHero Windows 托管助手，维护署名 **by 阿丸AWan**。当前发布版 **v1.3.85** 使用 Frida 连接正在运行的游戏进程，支持本机与 Sandboxie 多开实例，无需向游戏目录部署插件。
 
-**[下载 v1.3.82 Windows x64 ZIP](https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.82/TBHHelper-v1.3.82-win-x64.zip)** · [更新公告](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.82) · [使用说明](docs/QUICKSTART.md) · [介绍帖](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
+**[下载 v1.3.85 Windows x64 ZIP](https://github.com/buguniaoOVO/TBHHelper/releases/download/v1.3.85/TBHHelper-v1.3.85-win-x64.zip)** · [更新公告](https://github.com/buguniaoOVO/TBHHelper/releases/tag/v1.3.85) · [使用说明](docs/QUICKSTART.md) · [介绍帖](docs/forum-post.md) · [问题反馈](https://github.com/buguniaoOVO/TBHHelper/issues)
 
 ![账号与进程控制](docs/images/02-accounts-redacted.png)
 
-## 本次响应修复
+## 本次账号页状态展示
 
-v1.3.82 修复上一版本统计标签页背景平铺导致的大量重绘。窗口拖动保持固定 DPI 字体，按窗口宽度调整工具栏；导航页只布局当前页面。统计刷新增加缓存并合并连续掉落事件。
+账号卡片按进程显示地图、交易船槽位总数、占用数量及逐槽冷却状态。余时可读时显示倒计时。账号页每15秒进行一次只读刷新。基础交易船有4格；Trade Ship Pack增加5格；官方规则为每格上船后冷却8小时，冷却开始后不能撤销。单个进程读取超时会提示，其他账号仍独立刷新。
+
+![账号页地图与交易船槽位状态示例：测试数据，用户名已遮盖](docs/images/10-account-dashboard.png)
+
+## 界面响应修复
+
+v1.3.83 起修复统计标签页背景平铺导致的大量重绘。窗口拖动保持固定 DPI 字体，按窗口宽度调整工具栏；导航页只布局当前页面。统计刷新增加缓存并合并连续掉落事件。
 
 恢复游戏窗口改为异步投递，每个账号独立确认；超时后保留重试入口，其他账号继续处理。掉落记录删除概率列，品质概率汇总保留。游戏本体卡死尚未复现，此版本修复已确认的助手重绘与跨进程窗口等待问题。
+
+## 账号页状态更新
+
+- 账号卡片新增当前地图、交易船总槽位、占用数量和每格冷却状态。
+- 只在账号页每15秒使用只读接口刷新；一个进程读取繁忙或超时会提示，其他账号继续更新。
+- 基础船4格，每格上船后冷却8小时；冷却开始后该槽不可撤销。Trade Ship Pack增加5格，面板按游戏实际容量显示。
+
+规则来源：[Steam官方公告](https://store.steampowered.com/news/posts/?enddate=1782378165&feed=steam_community_announcements) · [Trade Ship Pack官方页面](https://store.steampowered.com/app/4876910/TBH_Task_Bar_Hero_Trade_Ship_Pack/)。
 
 ## 直连版功能
 
@@ -26,7 +40,7 @@ v1.3.82 修复上一版本统计标签页背景平铺导致的大量重绘。窗
 
 | 页面 | 内容 |
 | --- | --- |
-| 账号 | 进程与用户名、本机和沙盒连接、各账号隐藏窗口与锁帧 |
+| 账号 | 进程与用户名、地图与交易船槽位冷却、本机与沙盒连接及各账号锁帧 |
 | 概览 | 连接状态、自动化状态、常用入口 |
 | 魔方 | 装备与材料合成、定时开箱、按账号检查并执行腐蚀 |
 | 地图 | 瘟疫之地难度与层数、门票与 Boss、南瓜灯峡谷、地图安全间隔 |
@@ -73,7 +87,7 @@ v1.3.82 修复上一版本统计标签页背景平铺导致的大量重绘。窗
 3. 检查对应账号及各项规则，再点击“一键开启”。可使用“全部关闭”停止助手自动化。
 4. 旧版用户先退出助手，再覆盖程序文件；保留自己的配置、历史与缓存文件。请备份旧目录。
 
-v1.3.82 无需部署 BepInEx、Java 或观星插件。旧版曾安装的游戏插件不由本次压缩包自动清理；旧插件仍运行时应先停用旧助手，避免重复操作。
+v1.3.85 无需部署 BepInEx、Java 或观星插件。旧版曾安装的游戏插件不由本次压缩包自动清理；旧插件仍运行时应先停用旧助手，避免重复操作。
 
 ## 数据与范围
 
@@ -83,7 +97,7 @@ Windows 10/11 x64；游戏更新可能改变进程接口。请遵守游戏和平
 
 ## 源码与构建范围
 
-本次直连版维护脚本位于 `maintenance/direct-connect`，属于针对既有 Python 3.14 打包程序的维护补丁。仓库原有 `src/java`、`src/plugin` 与根目录 `build.ps1` 保留为历史插件版代码，不能用来构建 v1.3.82。详见 [构建说明](docs/BUILD.md)。
+本次直连版维护脚本位于 `maintenance/direct-connect`，属于针对既有 Python 3.14 打包程序的维护补丁。仓库原有 `src/java`、`src/plugin` 与根目录 `build.ps1` 保留为历史插件版代码，不能用来构建 v1.3.85。详见 [构建说明](docs/BUILD.md)。
 
 既有代码和第三方组件保留各自权利与许可，参见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE.md)。
 
